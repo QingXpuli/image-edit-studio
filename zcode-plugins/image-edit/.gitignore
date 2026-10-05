@@ -1,0 +1,5 @@
+.image-edit.pid
+server.log
+local.json
+__pycache__/
+*.pyc

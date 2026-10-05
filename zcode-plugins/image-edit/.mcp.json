@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "image-edit": {
+      "type": "stdio",
+      "command": "${user_config.python}",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/mcp/image_edit_mcp.py"],
+      "env": {
+        "IMAGE_EDIT_PLUGIN_ROOT": "${CLAUDE_PLUGIN_ROOT}",
+        "IMAGE_EDIT_PORT": "${user_config.port}"
+      },
+      "timeoutMs": 60000
+    }
+  }
+}

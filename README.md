@@ -42,6 +42,7 @@ AI 主导的图生图 / 局部改图 / 风格蒸馏工作台：**自然语言下
 - `compose/images/mask_edit_app.py`：本地改图/画廊服务本体（也是 DSH 插件的服务端）。
 - `style-distill/round_lib/run_round.py`：实测主力执行器（体积门禁、重试、探测式下载）。
 - `zcode-image-edit/`：ZCode 原生技能 + CLI + 斜杠命令（推荐入口，运行期不依赖 DSH）。
+- `zcode-plugins/image-edit/`：ZCode MCP 插件——涂抹/矩形遮罩画布 + 生图参数面板 + 全屏对比查看器 + 视频任务（三栏工作台，凭据只走本机）。
 - `dsh-plugins/dsh-image-edit/`：DSH 侧栏按钮参考实现（可选，不参与 ZCode 运行路径）。
 
 ## 快速开始
