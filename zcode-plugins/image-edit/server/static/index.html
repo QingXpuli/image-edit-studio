@@ -24,7 +24,7 @@
     button, input, select, textarea { font: inherit; color: inherit; }
     button { cursor: pointer; }
     .app { display: grid; grid-template-columns: minmax(0, 1fr) 380px; height: 100%; }
-    .stage { display: flex; flex-direction: column; min-width: 0; min-height: 0; border-right: 1px solid var(--line); }
+    .stage { display: flex; flex-direction: column; min-width: 0; min-height: 0; border-right: 1px solid var(--line); position: relative; }
     .tabs, .toolbar, .side { background: var(--panel); }
     .tabs { display: flex; gap: 6px; padding: 10px 12px; border-bottom: 1px solid var(--line); }
     .tab {
@@ -57,6 +57,13 @@
     .stack canvas { display: block; max-width: none; }
     #view { position: absolute; inset: 0; }
     #paint { position: absolute; inset: 0; cursor: crosshair; }
+    .ann-editor {
+      position: absolute; z-index: 20; display: none; min-width: 140px; max-width: 280px;
+      background: #12151c; border: 1px solid var(--accent-2); border-radius: 8px;
+      padding: 6px 8px; color: var(--text); box-shadow: 0 8px 24px #0008;
+      pointer-events: auto;
+    }
+    .ann-editor.show { display: block; }
     .canvas-wrap.dragging::after {
       content: "松手把图片放进画布";
       position: absolute; inset: 12px; z-index: 10;
@@ -71,6 +78,8 @@
     h1 { font-size: 16px; margin: 0 0 4px; font-weight: 650; }
     h2 { font-size: 12px; margin: 0 0 8px; color: var(--muted); font-weight: 650; letter-spacing: .04em; text-transform: uppercase; }
     .card { background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--radius); padding: 10px; }
+    details.card summary { cursor: pointer; color: var(--muted); font-size: 12px; font-weight: 650; letter-spacing: .04em; text-transform: uppercase; }
+    details.card[open] summary { margin-bottom: 8px; }
     label { display: block; font-size: 12px; color: var(--muted); margin: 8px 0 4px; }
     input[type=text], input[type=password], input[type=number], select, textarea {
       width: 100%; background: #12151c; border: 1px solid var(--line); border-radius: 8px; padding: 7px 9px;
@@ -100,6 +109,17 @@
     }
     .gallery .gitem.active { border-color: var(--accent-2); }
     .gallery .gitem img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .versions { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+    .versions .vitem {
+      min-width: 64px; height: 72px; border-radius: 8px; overflow: hidden; border: 2px solid transparent;
+      background: #0c0e13; padding: 0; position: relative;
+    }
+    .versions .vitem.active { border-color: var(--accent-2); }
+    .versions .vitem img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .versions .vitem .vlbl {
+      position: absolute; left: 0; right: 0; bottom: 0; font-size: 10px; text-align: center;
+      background: #000a; color: #fff; padding: 1px 0;
+    }
     .result video { width: 100%; border-radius: 8px; background: #000; }
     .price { font-size: 12px; color: var(--warn); margin-top: 8px; min-height: 1.3em; }
     .brush { width: 110px; }
@@ -173,12 +193,14 @@
           <input class="sr" id="fileInput" type="file" accept="image/*" multiple />
         </div>
         <div class="group">
-          <button class="btn active" data-tool="brush" id="toolBrush">画笔</button>
-          <button class="btn" data-tool="rect" id="toolRect">矩形</button>
+          <button class="btn" data-tool="brush" id="toolBrush">画笔</button>
+          <button class="btn active" data-tool="rect" id="toolRect">矩形</button>
           <button class="btn" data-tool="eraser" id="toolEraser">橡皮</button>
           <button class="btn" id="btnFillAll">全填</button>
           <button class="btn" id="btnClearMask">清空</button>
           <button class="btn" id="btnInvert">反选</button>
+          <button class="btn" id="btnUndo" title="Ctrl+Z" disabled>撤销</button>
+          <button class="btn" id="btnRedo" title="Ctrl+Y" disabled>重做</button>
           <button class="btn" id="btnFit">适应窗口</button>
         </div>
         <div class="group">
@@ -198,13 +220,15 @@
         <div class="stack" id="stack">
           <canvas id="view"></canvas>
           <canvas id="paint"></canvas>
+          <input id="annEditor" class="ann-editor" autocomplete="off" placeholder="这块要改成什么" />
         </div>
       </div>
     </section>
     <aside class="side">
       <div>
-        <h1 id="sideTitle">改图</h1>
+        <h1 id="sideTitle">改图 <span class="hint" id="appVersion"></span></h1>
         <div class="hint" id="sideHint">涂抹区 = 要改的区域。红色只是发给上游的标记，结果里不应出现红块。</div>
+        <div class="status" id="updateStatus"></div>
       </div>
 
       <div class="card edit-only" id="cardContent">
@@ -212,60 +236,11 @@
         <div class="thumbs" id="contentThumbs"></div>
       </div>
 
-      <div class="card edit-only" id="cardRef">
-        <h2>参考图</h2>
-        <div class="row">
-          <button class="btn" id="btnAddRef">添加参考图</button>
-          <button class="btn" id="btnClearRef">清空参考图</button>
-        </div>
-        <input class="sr" id="refInput" type="file" accept="image/*" multiple />
-        <div class="thumbs" id="refThumbs" style="margin-top:8px"></div>
-        <label>参考角色标签（可选，逗号分隔，与参考图顺序对应）</label>
-        <input type="text" id="refRoles" placeholder="身份, 画法, 姿态" />
-      </div>
-
-      <div class="card edit-only" id="cardEngine">
-        <h2>引擎</h2>
-        <label>引擎</label>
-        <select id="engine"></select>
-        <div id="scopeFields">
-          <label>作用域</label>
-          <select id="scope">
-            <option value="mask">仅遮罩区（涂红重画，不发干净原图）</option>
-            <option value="full">整图重画</option>
-          </select>
-          <label>遮罩模式</label>
-          <select id="maskMode">
-            <option value="paint_edit">涂哪改哪</option>
-            <option value="invert">反选：涂哪保哪</option>
-          </select>
-        </div>
-      </div>
-
-      <div class="card">
-        <h2>接口</h2>
-        <label>Base URL（到 /v1 为止，可不带 /v1 自动补）</label>
-        <input type="text" id="baseUrl" placeholder="https://your-relay.example.com/v1" />
-        <label>API Key（只存在本机浏览器）</label>
-        <div class="key-wrap">
-          <input type="password" id="apiKey" placeholder="Bearer 后面那串" autocomplete="off" />
-          <button class="btn" id="toggleKey" type="button">显示</button>
-        </div>
-        <div class="row" style="margin-top:8px">
-          <button class="btn" id="btnTest">测试</button>
-          <button class="btn" id="btnModels">获取模型列表</button>
-          <button class="btn" id="btnSaveDefaults">保存为本机默认</button>
-        </div>
-        <div class="status" id="connStatus"></div>
-      </div>
-
       <div class="card" id="cardParams">
         <h2>参数</h2>
         <div id="imageParams">
-          <label>模型</label>
-          <input type="text" id="model" list="modelList" value="gpt-image-2" />
           <label>提示词</label>
-          <textarea id="prompt" placeholder="描述要改成什么样。红色标记由服务自动追加说明。"></textarea>
+          <textarea id="prompt" placeholder="没有写在红框上的整体要求，可留空"></textarea>
           <div class="row">
             <div>
               <label>清晰度</label>
@@ -285,6 +260,7 @@
                 <option value="9:16">9:16</option>
                 <option value="3:2">3:2</option>
                 <option value="2:3">2:3</option>
+                <option value="match">与当前图相同</option>
               </select>
             </div>
             <div>
@@ -297,37 +273,82 @@
               </select>
             </div>
           </div>
-          <div class="row">
-            <div class="edit-only">
-              <label>质量（GPT）</label>
-              <select id="quality">
-                <option value="high">high</option>
-                <option value="medium">medium</option>
-                <option value="low">low</option>
-                <option value="auto">auto</option>
-              </select>
-            </div>
-            <div>
-              <label>输出格式</label>
-              <select id="outputFormat">
-                <option value="png">png</option>
-                <option value="jpeg">jpeg</option>
-                <option value="webp">webp</option>
-              </select>
-            </div>
-          </div>
-          <div class="edit-only">
-            <label>适应方式</label>
-            <select id="padMode">
-              <option value="fit">适应（留黑边）</option>
-              <option value="fill">裁切填满</option>
-              <option value="stretch">拉伸</option>
-            </select>
-          </div>
           <div class="price" id="priceEst"></div>
           <button class="btn primary" id="btnRun" style="width:100%;margin-top:10px">提交改图</button>
           <div class="status" id="runStatus"></div>
         </div>
+      </div>
+
+      <details class="card" id="cardMore">
+        <summary>接口 / 模型 / 质量</summary>
+        <label>引擎</label>
+        <select id="engine"></select>
+        <div id="scopeFields" class="edit-only">
+          <label>作用域</label>
+          <select id="scope">
+            <option value="mask">仅遮罩区（涂红重画，不发干净原图）</option>
+            <option value="full">整图重画</option>
+          </select>
+          <label>遮罩模式</label>
+          <select id="maskMode">
+            <option value="paint_edit">涂哪改哪</option>
+            <option value="invert">反选：涂哪保哪</option>
+          </select>
+        </div>
+        <label>Base URL（到 /v1 为止）</label>
+        <input type="text" id="baseUrl" placeholder="https://your-relay.example.com/v1" />
+        <label>API Key（只存在本机浏览器）</label>
+        <div class="key-wrap">
+          <input type="password" id="apiKey" placeholder="Bearer 后面那串" autocomplete="off" />
+          <button class="btn" id="toggleKey" type="button">显示</button>
+        </div>
+        <div class="row" style="margin-top:8px">
+          <button class="btn" id="btnTest">测试</button>
+          <button class="btn" id="btnModels">获取模型列表</button>
+          <button class="btn" id="btnSaveDefaults">保存为本机默认</button>
+        </div>
+        <div class="status" id="connStatus"></div>
+        <label>模型</label>
+        <input type="text" id="model" list="modelList" value="gpt-image-2" />
+        <div class="row">
+          <div class="edit-only">
+            <label>质量（GPT）</label>
+            <select id="quality">
+              <option value="high">high</option>
+              <option value="medium">medium</option>
+              <option value="low">low</option>
+              <option value="auto">auto</option>
+            </select>
+          </div>
+          <div>
+            <label>输出格式</label>
+            <select id="outputFormat">
+              <option value="png">png</option>
+              <option value="jpeg">jpeg</option>
+              <option value="webp">webp</option>
+            </select>
+          </div>
+        </div>
+        <div class="edit-only">
+          <label>适应方式</label>
+          <select id="padMode">
+            <option value="fit">适应（留黑边）</option>
+            <option value="fill">裁切填满</option>
+            <option value="stretch">拉伸</option>
+          </select>
+        </div>
+      </details>
+
+      <div class="card edit-only" id="cardRef">
+        <h2>参考图</h2>
+        <div class="row">
+          <button class="btn" id="btnAddRef">添加参考图</button>
+          <button class="btn" id="btnClearRef">清空参考图</button>
+        </div>
+        <input class="sr" id="refInput" type="file" accept="image/*" multiple />
+        <div class="thumbs" id="refThumbs" style="margin-top:8px"></div>
+        <label>参考角色标签（可选，逗号分隔，与参考图顺序对应）</label>
+        <input type="text" id="refRoles" placeholder="身份, 画法, 姿态" />
       </div>
 
       <div class="card" id="videoCard">
@@ -363,8 +384,10 @@
 
       <div class="card result" id="cardResult">
         <h2>结果</h2>
+        <div class="hint" id="versionHint">原图一直留着。每次生成追加一版，点版本条切过去继续改。</div>
+        <div class="versions" id="versions"></div>
         <img id="outImg" alt="结果会显示在这里" title="点击全屏查看 · 长按可闪看原图" />
-        <div class="gallery" id="gallery"></div>
+        <div class="gallery" id="gallery" hidden></div>
         <div class="row" style="margin-top:8px">
           <a class="btn" id="btnDownload" download="edit.png" style="text-align:center;text-decoration:none">下载</a>
           <button class="btn" id="btnCompare">按住对比</button>

@@ -35,6 +35,27 @@ STATE_ROOT = Path(os.environ.get("IMAGE_EDIT_STATE_DIR") or PLUGIN_ROOT)
 PID_FILE = STATE_ROOT / ".image-edit.pid"
 LOG_FILE = STATE_ROOT / "server.log"
 USER_LOCAL = Path.home() / ".zcode" / "image-edit.local.json"
+PLUGIN_MANIFEST = PLUGIN_ROOT / ".zcode-plugin" / "plugin.json"
+UPDATE_REPO = "QingXpuli/image-edit-studio"
+
+
+def plugin_version() -> str:
+    try:
+        data = json.loads(PLUGIN_MANIFEST.read_text(encoding="utf-8"))
+        v = data.get("version")
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+    except (OSError, ValueError):
+        pass
+    return "0.0.0"
+
+
+def _version_tuple(text: str) -> tuple[int, ...]:
+    nums = []
+    for part in re.split(r"[^\d]+", (text or "").lstrip("v")):
+        if part.isdigit():
+            nums.append(int(part))
+    return tuple(nums) or (0,)
 
 RED = (255, 0, 0)
 MAX_UPSTREAM_BYTES = 1_900_000
@@ -665,8 +686,33 @@ class Handler(BaseHTTPRequestHandler):
                     "has_key": bool(cfg.get("api_key")),
                     "model": cfg.get("model") or "gpt-image-2",
                     "source": str(USER_LOCAL) if USER_LOCAL.is_file() else "env",
+                    "version": plugin_version(),
                 },
             )
+            return
+        if path == "/api/update":
+            current = plugin_version()
+            latest = current
+            url = "https://github.com/%s/releases" % UPDATE_REPO
+            notes = ""
+            try:
+                req = urllib.request.Request(
+                    "https://api.github.com/repos/%s/releases/latest" % UPDATE_REPO,
+                    headers={"User-Agent": "image-edit-canvas/" + current, "Accept": "application/vnd.github+json"},
+                )
+                with urllib.request.urlopen(req, timeout=8) as resp:
+                    data = json.loads(resp.read().decode("utf-8", "replace") or "{}")
+                tag = str(data.get("tag_name") or "").strip()
+                if tag:
+                    latest = tag.lstrip("v")
+                    url = str(data.get("html_url") or url)
+                    notes = str(data.get("name") or "")
+            except Exception as exc:
+                log("update check failed: %s" % exc)
+                self._json(200, {"ok": True, "current": current, "latest": None, "newer": False, "url": url, "error": "暂时查不到 GitHub Release"})
+                return
+            newer = _version_tuple(latest) > _version_tuple(current)
+            self._json(200, {"ok": True, "current": current, "latest": latest, "newer": newer, "url": url, "name": notes})
             return
         if path == "/api/video/status":
             qs = urlparse(self.path).query

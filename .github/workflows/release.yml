@@ -1,0 +1,29 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  github-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          notes_file="$(mktemp)"
+          {
+            echo "Image Edit Studio ${tag}"
+            echo
+            echo "插件画布版本见 \`zcode-plugins/image-edit/.zcode-plugin/plugin.json\`。"
+            echo
+            git log -1 --pretty=%B
+          } > "$notes_file"
+          gh release create "$tag" --title "$tag" --notes-file "$notes_file"

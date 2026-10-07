@@ -12,7 +12,7 @@
     images: [],
     refs: [],
     active: 0,
-    tool: "brush",
+    tool: "rect",
     brush: 36,
     drawing: false,
     last: null,
@@ -24,8 +24,18 @@
     rectStart: null,
     selectedRect: null,
     dragRect: null,
+    arrowStart: null,
+    selectedAnn: null,
+    dragAnn: null,
+    resizeRect: null,
     serverHasKey: false,
     serverBase: "",
+    viewScale: 1,
+    panX: 0,
+    panY: 0,
+    spaceDown: false,
+    panning: null,
+    fitScale: 1,
   };
 
   function normalizedBase(base) {
@@ -50,6 +60,16 @@
   const EXT = { png: "png", jpeg: "jpg", webp: "webp" };
 
   function computeSize(tier, ratio) {
+    if (ratio === "match") {
+      const item = current();
+      if (item && item.img) {
+        const snap = (v) => Math.max(256, Math.round(v / 64) * 64);
+        const maxSide = TIER_SHORT[tier] || 1024;
+        const iw = item.img.naturalWidth, ih = item.img.naturalHeight;
+        const scale = maxSide / Math.max(iw, ih);
+        return snap(iw * Math.min(scale, 1)) + "x" + snap(ih * Math.min(scale, 1));
+      }
+    }
     const base = TIER_SHORT[tier] || 1024;
     const [rw, rh] = RATIOS[ratio] || [1, 1];
     let w, h;
@@ -110,10 +130,32 @@
       // 安全：服务端只给 has_key 布尔值，绝不下发 api_key 本体。
       // 页面 key 留空时，服务端提交会自动回退到本机配置的 key（/api/edit 已实现）。
       if (!$("model").value && j.model) $("model").value = j.model;
+      if (j.version && $("appVersion")) $("appVersion").textContent = "v" + j.version;
       if (j.has_key) {
         setStatus($("connStatus"), "服务端已配置 API Key（页面留空即可）。点「测试」验证连通。");
       } else if (j.base_url) {
         setStatus($("connStatus"), "已从本机配置填入 Base URL。请在页面填写 API Key 后点「测试」。");
+      }
+      checkForUpdate();
+    } catch {}
+  }
+
+  async function checkForUpdate() {
+    const el = $("updateStatus");
+    if (!el) return;
+    try {
+      const r = await fetch("/api/update");
+      const j = await r.json();
+      if (!j.ok) return;
+      if (j.newer) {
+        el.innerHTML = `有新版本 v${j.latest}（当前 v${j.current}）。<a href="${j.url}" target="_blank" rel="noopener">查看 Release</a>`;
+        el.className = "status ok";
+      } else if (j.latest) {
+        el.textContent = `已是最新 v${j.current}`;
+        el.className = "status";
+      } else if (j.error) {
+        el.textContent = j.error;
+        el.className = "status";
       }
     } catch {}
   }
@@ -156,7 +198,7 @@
         const mask = document.createElement("canvas");
         mask.width = img.naturalWidth;
         mask.height = img.naturalHeight;
-        resolve({ file, img, mask, url, name: file.name, rects: [] });
+        resolve({ file, img, mask, url, name: file.name, rects: [], anns: [], history: [], future: [] });
       };
       img.onerror = () => reject(new Error("无法读取 " + file.name));
       img.src = url;
@@ -181,7 +223,10 @@
       $("imgMeta").textContent = "还没有图";
       return;
     }
-    const s = fitScale(item.img);
+    const fit = fitScale(item.img);
+    state.fitScale = fit;
+    if (!state.viewScale || state.viewScale === 1) state.viewScale = fit;
+    const s = state.viewScale;
     state.displayScale = s;
     const w = Math.max(1, Math.round(item.img.naturalWidth * s));
     const h = Math.max(1, Math.round(item.img.naturalHeight * s));
@@ -189,8 +234,10 @@
     view.height = paint.height = h;
     stack.style.width = w + "px";
     stack.style.height = h + "px";
+    stack.style.transform = `translate(${state.panX}px, ${state.panY}px)`;
     redraw();
-    $("imgMeta").textContent = `${item.name} · ${item.img.naturalWidth}×${item.img.naturalHeight}`;
+    updateHistoryButtons();
+    $("imgMeta").textContent = `${item.name} · ${item.img.naturalWidth}×${item.img.naturalHeight} · ${Math.round(s / fit * 100)}%`;
   }
 
   function redraw() {
@@ -216,9 +263,123 @@
         pctx.lineWidth = sel ? 2 : 1;
         pctx.strokeStyle = sel ? "#38bdf8" : "rgb(255,90,90)";
         pctx.strokeRect(r.x * s, r.y * s, r.w * s, r.h * s);
+        if (sel) {
+          const hs = 6;
+          [[r.x, r.y], [r.x + r.w, r.y], [r.x, r.y + r.h], [r.x + r.w, r.y + r.h]].forEach(([hx, hy]) => {
+            pctx.fillStyle = "#38bdf8";
+            pctx.fillRect(hx * s - hs / 2, hy * s - hs / 2, hs, hs);
+          });
+        }
+        if ((r.text || "").trim()) {
+          pctx.globalAlpha = 1;
+          pctx.font = "12px ui-sans-serif, system-ui, sans-serif";
+          pctx.fillStyle = "#fff";
+          pctx.strokeStyle = "#000";
+          pctx.lineWidth = 3;
+          const tx = r.x * s + 6, ty = r.y * s + 16;
+          pctx.strokeText(r.text, tx, ty);
+          pctx.fillText(r.text, tx, ty);
+        }
         pctx.restore();
       });
     }
+    if (item.anns && item.anns.length) {
+      const s = state.displayScale;
+      item.anns.forEach((a, i) => drawAnnotation(a, i === state.selectedAnn, s));
+    }
+  }
+
+  function drawAnnotation(a, selected, s) {
+    const x1 = a.x1 * s, y1 = a.y1 * s, x2 = a.x2 * s, y2 = a.y2 * s;
+    pctx.save();
+    pctx.strokeStyle = selected ? "#38bdf8" : "rgb(228,30,60)";
+    pctx.fillStyle = selected ? "#38bdf8" : "rgb(228,30,60)";
+    pctx.lineWidth = selected ? 3 : 2.5;
+    pctx.beginPath();
+    pctx.moveTo(x1, y1);
+    pctx.lineTo(x2, y2);
+    pctx.stroke();
+    const ang = Math.atan2(y2 - y1, x2 - x1);
+    const ah = 12;
+    pctx.beginPath();
+    pctx.moveTo(x2, y2);
+    pctx.lineTo(x2 - ah * Math.cos(ang - 0.4), y2 - ah * Math.sin(ang - 0.4));
+    pctx.lineTo(x2 - ah * Math.cos(ang + 0.4), y2 - ah * Math.sin(ang + 0.4));
+    pctx.closePath();
+    pctx.fill();
+    if (a.text) {
+      pctx.font = "13px ui-sans-serif, system-ui, sans-serif";
+      pctx.strokeStyle = "#000";
+      pctx.lineWidth = 3;
+      pctx.strokeText(a.text, x1 + 6, y1 - 8);
+      pctx.fillStyle = selected ? "#38bdf8" : "rgb(255,80,90)";
+      pctx.fillText(a.text, x1 + 6, y1 - 8);
+    }
+    pctx.restore();
+  }
+
+  const HISTORY_LIMIT = 50;
+
+  function cloneRects(rects) {
+    return (rects || []).map((r) => ({ x: r.x, y: r.y, w: r.w, h: r.h, text: r.text || "" }));
+  }
+  function cloneAnns(anns) {
+    return (anns || []).map((a) => ({ x1: a.x1, y1: a.y1, x2: a.x2, y2: a.y2, text: a.text || "" }));
+  }
+
+  function snapshotItem(item) {
+    return {
+      mask: item.mask.getContext("2d").getImageData(0, 0, item.mask.width, item.mask.height),
+      rects: cloneRects(item.rects),
+      anns: cloneAnns(item.anns),
+    };
+  }
+
+  function restoreItem(item, snap) {
+    item.mask.getContext("2d").putImageData(snap.mask, 0, 0);
+    item.rects = cloneRects(snap.rects);
+    item.anns = cloneAnns(snap.anns);
+    state.selectedRect = null;
+    state.selectedAnn = null;
+  }
+
+  function pushHistory(item) {
+    if (!item) return;
+    item.history = item.history || [];
+    item.future = item.future || [];
+    item.history.push(snapshotItem(item));
+    if (item.history.length > HISTORY_LIMIT) item.history.shift();
+    item.future.length = 0;
+    updateHistoryButtons();
+  }
+
+  function undo() {
+    const item = current();
+    if (!item || !(item.history && item.history.length)) return;
+    item.future = item.future || [];
+    item.future.push(snapshotItem(item));
+    restoreItem(item, item.history.pop());
+    redraw();
+    updateHistoryButtons();
+  }
+
+  function redo() {
+    const item = current();
+    if (!item || !(item.future && item.future.length)) return;
+    item.history = item.history || [];
+    item.history.push(snapshotItem(item));
+    restoreItem(item, item.future.pop());
+    redraw();
+    updateHistoryButtons();
+  }
+
+  function updateHistoryButtons() {
+    const item = current();
+    const undoBtn = $("btnUndo");
+    const redoBtn = $("btnRedo");
+    if (!undoBtn || !redoBtn) return;
+    undoBtn.disabled = !(item && item.history && item.history.length);
+    redoBtn.disabled = !(item && item.future && item.future.length);
   }
 
   // 把矩形对象固化进位图遮罩（提交、或需要像素级操作时调用）
@@ -234,8 +395,57 @@
     if (state.selectedRect != null) state.selectedRect = null;
   }
 
+  function annotationPrompt(item) {
+    const fromRects = (item.rects || []).map((r) => (r.text || "").trim()).filter(Boolean);
+    const fromAnns = (item.anns || []).map((a) => (a.text || "").trim()).filter(Boolean);
+    const texts = fromRects.concat(fromAnns);
+    if (!texts.length) return "";
+    return "图上的红色框是要改的区域，框上的文字是修改要求：" + texts.map((t, i) => `（${i + 1}）${t}`).join("；") + "。结果里不要出现红框、箭头或文字痕迹。";
+  }
+
+  function compositeWithAnnotations(item) {
+    const c = document.createElement("canvas");
+    c.width = item.img.naturalWidth;
+    c.height = item.img.naturalHeight;
+    const ctx = c.getContext("2d");
+    ctx.drawImage(item.img, 0, 0);
+    const prev = { pctx, displayScale: state.displayScale };
+    // draw onto this canvas in image pixels
+    const old = pctx;
+    // reuse drawAnnotation but it uses pctx/displayScale — draw locally
+    (item.anns || []).forEach((a) => {
+      ctx.save();
+      ctx.strokeStyle = "rgb(228,30,60)";
+      ctx.fillStyle = "rgb(228,30,60)";
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.moveTo(a.x1, a.y1);
+      ctx.lineTo(a.x2, a.y2);
+      ctx.stroke();
+      const ang = Math.atan2(a.y2 - a.y1, a.x2 - a.x1);
+      const ah = 18;
+      ctx.beginPath();
+      ctx.moveTo(a.x2, a.y2);
+      ctx.lineTo(a.x2 - ah * Math.cos(ang - 0.4), a.y2 - ah * Math.sin(ang - 0.4));
+      ctx.lineTo(a.x2 - ah * Math.cos(ang + 0.4), a.y2 - ah * Math.sin(ang + 0.4));
+      ctx.closePath();
+      ctx.fill();
+      if (a.text) {
+        ctx.font = "28px ui-sans-serif, system-ui, sans-serif";
+        ctx.strokeStyle = "#000";
+        ctx.lineWidth = 6;
+        ctx.strokeText(a.text, a.x1 + 8, a.y1 - 10);
+        ctx.fillStyle = "rgb(255,80,90)";
+        ctx.fillText(a.text, a.x1 + 8, a.y1 - 10);
+      }
+      ctx.restore();
+    });
+    return c;
+  }
+
   function maskHasContent(item) {
     if (item.rects && item.rects.length) return true;
+    if (item.anns && item.anns.length) return true;
     const data = maskCtx(item).getImageData(0, 0, item.mask.width, item.mask.height).data;
     for (let i = 3; i < data.length; i += 4) if (data[i] >= 128) return true;
     return false;
@@ -340,6 +550,78 @@
 
   // --- 矩形工具：拖拽出实心矩形改区，带预览 ---
 
+  function hitRectHandle(r, p, s) {
+    const tol = 10 / s;
+    const corners = [
+      ["nw", r.x, r.y],
+      ["ne", r.x + r.w, r.y],
+      ["sw", r.x, r.y + r.h],
+      ["se", r.x + r.w, r.y + r.h],
+    ];
+    for (const [name, hx, hy] of corners) {
+      if (Math.abs(p.x - hx) <= tol && Math.abs(p.y - hy) <= tol) return name;
+    }
+    return null;
+  }
+
+  function applyResize(r, handle, p, iw, ih) {
+    let x1 = r.ox, y1 = r.oy, x2 = r.ox + r.ow, y2 = r.oy + r.oh;
+    if (handle.includes("n")) y1 = p.y;
+    if (handle.includes("s")) y2 = p.y;
+    if (handle.includes("w")) x1 = p.x;
+    if (handle.includes("e")) x2 = p.x;
+    r.x = Math.max(0, Math.min(x1, x2));
+    r.y = Math.max(0, Math.min(y1, y2));
+    r.w = Math.max(4, Math.min(iw - r.x, Math.abs(x2 - x1)));
+    r.h = Math.max(4, Math.min(ih - r.y, Math.abs(y2 - y1)));
+  }
+
+  function nearestRectIndex(item, p) {
+    let best = -1, dist = Infinity;
+    (item.rects || []).forEach((r, i) => {
+      const cx = r.x + r.w / 2, cy = r.y + r.h / 2;
+      const d = Math.hypot(p.x - cx, p.y - cy);
+      if (d < dist) { dist = d; best = i; }
+    });
+    return best;
+  }
+
+  function hideAnnEditor() {
+    const el = $("annEditor");
+    if (!el) return;
+    el.classList.remove("show");
+    el.blur();
+  }
+
+  function placeAnnEditor(item, idx) {
+    const el = $("annEditor");
+    const r = item.rects[idx];
+    if (!el || !r) return;
+    const s = state.displayScale;
+    el.value = r.text || "";
+    el.dataset.idx = String(idx);
+    el.style.left = (r.x * s) + "px";
+    el.style.top = (r.y * s + r.h * s + 6) + "px";
+    el.classList.add("show");
+    el.focus();
+    el.select();
+  }
+
+  function commitAnnEditor() {
+    const el = $("annEditor");
+    if (!el || !el.classList.contains("show")) return;
+    const item = current();
+    const idx = Number(el.dataset.idx);
+    if (!item || !item.rects || !item.rects[idx]) { hideAnnEditor(); return; }
+    const next = el.value.trim();
+    if ((item.rects[idx].text || "") !== next) {
+      pushHistory(item);
+      item.rects[idx].text = next;
+      redraw();
+    }
+    hideAnnEditor();
+  }
+
   function previewRect(from, to) {
     const item = current();
     if (!item) return;
@@ -360,26 +642,51 @@
     pctx.restore();
   }
 
+  function hitExistingRect(item, p) {
+    let hit = -1, handle = null;
+    if (state.selectedRect != null && item.rects[state.selectedRect]) {
+      handle = hitRectHandle(item.rects[state.selectedRect], p, state.displayScale);
+      if (handle) return { hit: state.selectedRect, handle };
+    }
+    for (let i = (item.rects || []).length - 1; i >= 0; i--) {
+      const r = item.rects[i];
+      const h = hitRectHandle(r, p, state.displayScale);
+      if (h) return { hit: i, handle: h };
+      if (p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h) return { hit: i, handle: null };
+    }
+    return { hit, handle };
+  }
+
   paint.addEventListener("pointerdown", (ev) => {
     if (!current()) return;
     paint.setPointerCapture(ev.pointerId);
     const item = current();
     const p = pos(ev);
-    if (state.tool === "rect") {
-      // 先看是否命中已有矩形（倒序=最上层优先）→ 选中并进入拖动
-      let hit = -1;
-      for (let i = (item.rects || []).length - 1; i >= 0; i--) {
-        const r = item.rects[i];
-        if (p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h) { hit = i; break; }
-      }
-      if (hit >= 0) {
-        state.selectedRect = hit;
-        const r = item.rects[hit];
-        state.dragRect = { idx: hit, dx: p.x - r.x, dy: p.y - r.y };
+    if (state.spaceDown || ev.button === 1) {
+      state.panning = { x: ev.clientX, y: ev.clientY, panX: state.panX, panY: state.panY };
+      paint.style.cursor = "grabbing";
+      ev.preventDefault();
+      return;
+    }
+    const { hit, handle } = hitExistingRect(item, p);
+    if (hit >= 0) {
+      hideAnnEditor();
+      state.selectedRect = hit;
+      const r = item.rects[hit];
+      if (ev.detail === 2) {
         redraw();
+        placeAnnEditor(item, hit);
         ev.preventDefault();
         return;
       }
+      if (handle) state.resizeRect = { idx: hit, handle, ox: r.x, oy: r.y, ow: r.w, oh: r.h };
+      else state.dragRect = { idx: hit, dx: p.x - r.x, dy: p.y - r.y, ox: r.x, oy: r.y };
+      redraw();
+      ev.preventDefault();
+      return;
+    }
+    if (state.tool === "rect") {
+      hideAnnEditor();
       state.selectedRect = null;
       state.drawing = true;
       state.rectStart = p;
@@ -387,16 +694,31 @@
       ev.preventDefault();
       return;
     }
-    paint.setPointerCapture(ev.pointerId);
+    hideAnnEditor();
+    state.selectedRect = null;
     state.drawing = true;
     state.last = p;
-    bakeRects(item); // 涂抹/橡皮是像素操作，先把矩形固化进位图
+    pushHistory(item);
     stroke(state.last, state.last);
     ev.preventDefault();
   });
   paint.addEventListener("pointermove", (ev) => {
-    if (!state.drawing && !state.dragRect) return;
+    if (state.panning) {
+      state.panX = state.panning.panX + (ev.clientX - state.panning.x);
+      state.panY = state.panning.panY + (ev.clientY - state.panning.y);
+      stack.style.transform = `translate(${state.panX}px, ${state.panY}px)`;
+      return;
+    }
+    if (!state.drawing && !state.dragRect && !state.resizeRect) return;
     const now = pos(ev);
+    if (state.resizeRect) {
+      const item = current();
+      const r = item.rects[state.resizeRect.idx];
+      if (!r) { state.resizeRect = null; return; }
+      applyResize(r, state.resizeRect.handle, now, item.img.naturalWidth, item.img.naturalHeight);
+      redraw();
+      return;
+    }
     if (state.dragRect) {
       const item = current();
       const r = item.rects[state.dragRect.idx];
@@ -416,7 +738,30 @@
   });
   const endDraw = (ev) => {
     const item = current();
-    if (state.dragRect) {
+    if (state.panning) {
+      state.panning = null;
+      paint.style.cursor = state.spaceDown ? "grab" : "crosshair";
+      return;
+    }
+    if (state.resizeRect) {
+      const r = item && item.rects[state.resizeRect.idx];
+      if (r && (r.w !== state.resizeRect.ow || r.h !== state.resizeRect.oh || r.x !== state.resizeRect.ox || r.y !== state.resizeRect.oy)) {
+        const nx = r.x, ny = r.y, nw = r.w, nh = r.h;
+        r.x = state.resizeRect.ox; r.y = state.resizeRect.oy; r.w = state.resizeRect.ow; r.h = state.resizeRect.oh;
+        pushHistory(item);
+        r.x = nx; r.y = ny; r.w = nw; r.h = nh;
+      }
+      state.resizeRect = null;
+    } else if (state.dragRect) {
+      const r = item && item.rects[state.dragRect.idx];
+      if (r && (r.x !== state.dragRect.ox || r.y !== state.dragRect.oy)) {
+        const nx = r.x, ny = r.y;
+        r.x = state.dragRect.ox;
+        r.y = state.dragRect.oy;
+        pushHistory(item);
+        r.x = nx;
+        r.y = ny;
+      }
       state.dragRect = null;
     } else if (state.drawing && state.tool === "rect" && state.rectStart && item) {
       const now = ev ? pos(ev) : state.last;
@@ -425,11 +770,16 @@
       const w = Math.abs(now.x - state.rectStart.x);
       const h = Math.abs(now.y - state.rectStart.y);
       if (w > 2 && h > 2) {
-        item.rects.push({ x, y, w, h });
+        pushHistory(item);
+        item.rects.push({ x, y, w, h, text: "" });
         state.selectedRect = item.rects.length - 1;
+        redraw();
+        placeAnnEditor(item, state.selectedRect);
+      } else {
+        state.rectStart = null;
+        redraw();
       }
       state.rectStart = null;
-      redraw();
     }
     state.drawing = false;
     state.last = null;
@@ -438,14 +788,38 @@
   paint.addEventListener("pointercancel", () => endDraw(null));
   paint.style.touchAction = "none";
 
-  // Delete/Backspace 删除选中矩形（输入框内不拦截）
+  // Delete/Backspace 删除选中矩形；Ctrl+Z / Ctrl+Y 撤销重做（输入框内不拦截）
   document.addEventListener("keydown", (e) => {
-    if (!["Delete", "Backspace"].includes(e.key)) return;
     const tag = (e.target.tagName || "").toUpperCase();
-    if (["INPUT", "TEXTAREA", "SELECT"].includes(tag)) return;
-    if (document.body.dataset.tab !== "edit" || state.selectedRect == null) return;
+    const typing = ["INPUT", "TEXTAREA", "SELECT"].includes(tag);
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === "z") {
+      if (typing) return;
+      e.preventDefault();
+      if (e.shiftKey) redo();
+      else undo();
+      return;
+    }
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === "y") {
+      if (typing) return;
+      e.preventDefault();
+      redo();
+      return;
+    }
+    if (!["Delete", "Backspace"].includes(e.key)) return;
+    if (typing) return;
+    if (document.body.dataset.tab !== "edit") return;
     const item = current();
+    if (state.selectedAnn != null && item && item.anns && item.anns[state.selectedAnn]) {
+      pushHistory(item);
+      item.anns.splice(state.selectedAnn, 1);
+      state.selectedAnn = null;
+      redraw();
+      e.preventDefault();
+      return;
+    }
+    if (state.selectedRect == null) return;
     if (!item || !item.rects || !item.rects[state.selectedRect]) return;
+    pushHistory(item);
     item.rects.splice(state.selectedRect, 1);
     state.selectedRect = null;
     redraw();
@@ -459,12 +833,24 @@
     $("toolEraser").classList.toggle("active", name === "eraser");
   }
 
+  const annEl = $("annEditor");
+  if (annEl) {
+    annEl.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); commitAnnEditor(); }
+      if (e.key === "Escape") { hideAnnEditor(); }
+    });
+    annEl.addEventListener("blur", () => commitAnnEditor());
+  }
+
   $("toolBrush").onclick = () => setTool("brush");
   $("toolRect").onclick = () => setTool("rect");
   $("toolEraser").onclick = () => setTool("eraser");
+  $("btnUndo").onclick = () => undo();
+  $("btnRedo").onclick = () => redo();
   $("btnFillAll").onclick = () => {
     const item = current();
     if (!item) return;
+    pushHistory(item);
     const c = maskCtx(item);
     c.save();
     c.globalCompositeOperation = "source-over";
@@ -472,7 +858,9 @@
     c.fillRect(0, 0, item.mask.width, item.mask.height);
     c.restore();
     item.rects = [];
+    item.anns = [];
     state.selectedRect = null;
+    state.selectedAnn = null;
     redraw();
   };
   $("brush").oninput = (e) => {
@@ -482,15 +870,18 @@
   $("btnClearMask").onclick = () => {
     const item = current();
     if (!item) return;
+    pushHistory(item);
     maskCtx(item).clearRect(0, 0, item.mask.width, item.mask.height);
     item.rects = [];
+    item.anns = [];
     state.selectedRect = null;
+    state.selectedAnn = null;
     redraw();
   };
   $("btnInvert").onclick = () => {
     const item = current();
     if (!item) return;
-    bakeRects(item); // 反选是像素级操作，先固化矩形
+    pushHistory(item);
     const c = maskCtx(item);
     const w = item.mask.width, h = item.mask.height;
     const data = c.getImageData(0, 0, w, h);
@@ -506,13 +897,51 @@
     c.putImageData(data, 0, 0);
     redraw();
   };
-  $("btnFit").onclick = () => layout();
+  $("btnFit").onclick = () => {
+    const item = current();
+    if (!item) return;
+    state.viewScale = fitScale(item.img);
+    state.panX = 0;
+    state.panY = 0;
+    layout();
+  };
+
+  wrap.addEventListener("wheel", (e) => {
+    if (document.body.dataset.tab !== "edit" || !current()) return;
+    e.preventDefault();
+    const item = current();
+    const old = state.viewScale || fitScale(item.img);
+    const next = Math.min(8, Math.max(0.1, old * (e.deltaY < 0 ? 1.12 : 1 / 1.12)));
+    const rect = wrap.getBoundingClientRect();
+    const cx = e.clientX - rect.left - wrap.clientWidth / 2;
+    const cy = e.clientY - rect.top - wrap.clientHeight / 2;
+    const k = next / old;
+    state.panX = cx - (cx - state.panX) * k;
+    state.panY = cy - (cy - state.panY) * k;
+    state.viewScale = next;
+    layout();
+  }, { passive: false });
+
+  document.addEventListener("keydown", (e) => {
+    if (e.code !== "Space") return;
+    const tag = (e.target.tagName || "").toUpperCase();
+    if (["INPUT", "TEXTAREA", "SELECT"].includes(tag)) return;
+    if (e.repeat) { e.preventDefault(); return; }
+    state.spaceDown = true;
+    paint.style.cursor = "grab";
+    e.preventDefault();
+  });
+  document.addEventListener("keyup", (e) => {
+    if (e.code !== "Space") return;
+    state.spaceDown = false;
+    if (!state.panning) paint.style.cursor = "crosshair";
+  });
   $("btnCopyMask").onclick = () => {
     const src = current();
     if (!src) return;
-    bakeRects(src);
     for (const it of state.images) {
       if (it === src) continue;
+      pushHistory(it);
       const c = maskCtx(it);
       c.clearRect(0, 0, it.mask.width, it.mask.height);
       c.drawImage(src.mask, 0, 0, it.mask.width, it.mask.height);
@@ -683,6 +1112,113 @@
     document.querySelectorAll("#gallery .gitem").forEach((g, i) => g.classList.toggle("active", i === state.resultActive));
   }
 
+  function b64ToFile(b64, name, mime) {
+    const bin = atob(b64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return new File([bytes], name, { type: mime || "image/png" });
+  }
+
+  function renderVersions() {
+    const box = $("versions");
+    if (!box) return;
+    box.innerHTML = "";
+    const item = current();
+    const chain = (item && item.versions) || [];
+    chain.forEach((v, i) => {
+      const b = document.createElement("button");
+      b.className = "vitem" + (item && item.versionIndex === i ? " active" : "");
+      const img = document.createElement("img");
+      img.src = v.url;
+      img.alt = v.label;
+      const lab = document.createElement("span");
+      lab.className = "vlbl";
+      lab.textContent = v.label;
+      b.onclick = async () => {
+        if (!item) return;
+        item.versionIndex = i;
+        item.img = v.img;
+        item.url = v.url;
+        item.file = v.file;
+        item.name = v.name;
+        const mask = document.createElement("canvas");
+        mask.width = v.img.naturalWidth;
+        mask.height = v.img.naturalHeight;
+        item.mask = mask;
+        item.rects = [];
+        item.anns = [];
+        item.history = [];
+        item.future = [];
+        state.selectedRect = null;
+        renderVersions();
+        renderThumbs();
+        layout();
+        $("outImg").src = v.url;
+        $("btnDownload").href = v.url;
+        $("outMeta").textContent = v.label + (v.meta ? " · " + v.meta : "");
+      };
+      b.append(img, lab);
+      box.appendChild(b);
+    });
+  }
+
+  async function adoptGenerated(images, mime, meta, sourceItem) {
+    const list = images || [];
+    if (!list.length) return;
+    viewerMime = mime || "image/png";
+    const ext = (mime || "").includes("jpeg") ? "jpg" : (mime || "").includes("webp") ? "webp" : "png";
+    const parent = sourceItem || current();
+    const files = list.map((it, i) => b64ToFile(it.b64, `v${Date.now()}-${i + 1}.${ext}`, mime));
+    const loaded = [];
+    for (const f of files) loaded.push(await loadImageFile(f));
+    if (parent && document.body.dataset.tab === "edit") {
+      if (!parent.versions || !parent.versions.length) {
+        parent.versions = [{
+          label: "原图",
+          img: parent.img,
+          url: parent.url,
+          file: parent.file,
+          name: parent.name,
+          meta: "",
+        }];
+        parent.versionIndex = 0;
+      }
+      const start = parent.versions.filter((v) => v.label.startsWith("v")).length;
+      loaded.forEach((it, i) => {
+        parent.versions.push({
+          label: "v" + (start + i + 1),
+          img: it.img,
+          url: it.url,
+          file: it.file,
+          name: it.name,
+          meta,
+        });
+      });
+      const last = parent.versions[parent.versions.length - 1];
+      parent.versionIndex = parent.versions.length - 1;
+      parent.img = last.img;
+      parent.url = last.url;
+      parent.file = last.file;
+      parent.name = last.name;
+      const mask = document.createElement("canvas");
+      mask.width = last.img.naturalWidth;
+      mask.height = last.img.naturalHeight;
+      parent.mask = mask;
+      parent.rects = [];
+      parent.anns = [];
+      parent.history = [];
+      parent.future = [];
+      state.selectedRect = null;
+      renderVersions();
+      renderThumbs();
+      layout();
+      $("outImg").src = last.url;
+      $("btnDownload").href = last.url;
+      $("outMeta").textContent = [last.label, meta].filter(Boolean).join(" · ");
+    }
+    showResults(list, mime, meta);
+  }
+
   function showResults(images, mime, meta) {
     state.results = images || [];
     state.resultActive = 0;
@@ -720,13 +1256,17 @@
     if (!connectionReady()) {
       setStatus($("runStatus"), "先填 Base URL 和 API Key", "err"); return;
     }
-    if (!$("prompt").value.trim()) {
-      setStatus($("runStatus"), "先填提示词", "err"); return;
+    commitAnnEditor();
+    const hasAnns = !isT2I && state.images.some((it) =>
+      (it.anns && it.anns.length) || (it.rects || []).some((r) => (r.text || "").trim())
+    );
+    if (!$("prompt").value.trim() && !hasAnns) {
+      setStatus($("runStatus"), "先填提示词，或给红框写上标注", "err"); return;
     }
     if (!isT2I && $("scope").value === "mask" && $("maskMode").value !== "invert") {
       const painted = state.images.some((it) => maskHasContent(it));
       if (!painted) {
-        setStatus($("runStatus"), "先在图上涂抹要改的区域（或把作用域改成整图重画）", "err");
+        setStatus($("runStatus"), "先涂红、框选或加标注（或把作用域改成整图重画）", "err");
         return;
       }
     }
@@ -737,7 +1277,8 @@
       fd.set("base_url", $("baseUrl").value.trim());
       fd.set("api_key", $("apiKey").value.trim());
       fd.set("model", $("model").value.trim());
-      fd.set("prompt", $("prompt").value.trim());
+      const extraAnn = !isT2I ? state.images.map(annotationPrompt).filter(Boolean).join(" ") : "";
+      fd.set("prompt", [$("prompt").value.trim(), extraAnn].filter(Boolean).join("。"));
       fd.set("size", computeSize($("tier").value, $("ratio").value));
       fd.set("count", $("count").value);
       fd.set("output_format", $("outputFormat").value);
@@ -750,12 +1291,27 @@
       fd.set("ref_roles", $("refRoles").value);
 
       if (!isT2I) {
+        let usedMask = false;
         for (const it of state.images) {
           bakeRects(it); // 提交前把矩形对象固化进遮罩位图
-          const blob = await canvasToBlob(imageToCanvas(it.img));
-          fd.append("image", blob, it.name || "content.png");
-          const mb = await canvasToBlob(it.mask);
-          fd.append("mask", mb, "mask.png");
+          const hasMask = maskHasContent({ ...it, anns: [] });
+          const hasAnn = it.anns && it.anns.length;
+          if (hasMask) {
+            usedMask = true;
+            const blob = await canvasToBlob(imageToCanvas(it.img));
+            fd.append("image", blob, it.name || "content.png");
+            const mb = await canvasToBlob(it.mask);
+            fd.append("mask", mb, "mask.png");
+          } else if (hasAnn) {
+            const blob = await canvasToBlob(compositeWithAnnotations(it));
+            fd.append("image", blob, it.name || "annotated.png");
+          } else {
+            const blob = await canvasToBlob(imageToCanvas(it.img));
+            fd.append("image", blob, it.name || "content.png");
+          }
+        }
+        if (!usedMask && hasAnns) {
+          fd.set("scope", "full");
         }
         for (const it of state.refs) {
           const blob = await canvasToBlob(imageToCanvas(it.img));
@@ -771,15 +1327,16 @@
       }
       const ext = EXT[$("outputFormat").value] || "png";
       $("btnDownload").download = `image.${ext}`;
-      showResults(j.images && j.images.length ? j.images : [{ b64: j.b64, size: j.actual_size }], j.mime || "image/png",
-        [
+      const meta = [
           j.actual_size ? `实际 ${j.actual_size}` : "",
           j.requested_size ? `请求 ${j.requested_size}` : "",
           j.feed_bytes ? `投喂 ${(j.feed_bytes / 1024 / 1024).toFixed(2)} MiB` : "",
           (j.images && j.images.length) > 1 ? `${j.images.length} 张` : "",
           j.note || "",
-        ].filter(Boolean).join(" · "));
-      setStatus($("runStatus"), "完成", "ok");
+        ].filter(Boolean).join(" · ");
+      const imgs = j.images && j.images.length ? j.images : [{ b64: j.b64, size: j.actual_size }];
+      await adoptGenerated(imgs, j.mime || "image/png", meta, isT2I ? null : item);
+      setStatus($("runStatus"), isT2I ? "完成" : "完成，已切到新版本，可继续涂改", "ok");
     } catch (e) {
       setStatus($("runStatus"), String(e), "err");
     } finally {
