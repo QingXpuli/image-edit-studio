@@ -108,6 +108,11 @@ description: 图像风格提取／蒸馏与图生图作业规范——风格迁�
                  2026-10-06 实测：首张 probe 即查出发丝区噪声，该手段有检出力）
                  「仅模板/仅产出」清单证内容差异；调色板 top 色号对比证色彩气质。
                  ⚠ 依赖 `pip install wdtagger colorgram.py`，首跑经 HF_ENDPOINT 镜像下载模型（CPU 可跑）
+  6.5 交叉验证    **JoyCaption Danbooru 反推 × WD14 交叉**（2026-10-07 试点固化，可选步骤）：
+                 `python scripts/joycaption_cross.py <产出图>` —— 第二标签源独立描述同一张图，
+                 两源分歧标签即人工复查点（双源一致＝高可信核）。
+                 ⚠ 走 HF Space 免费 API（ZeroGPU 配额按窗口恢复，耗尽即 `data: null` error，隔窗重试）；
+                 实测同图双源并集比单一源 +35% 标签覆盖。
 7  沉淀失败态    把本轮实际出现的失败形态加进 references/negative-library.md
 ```
 
@@ -136,6 +141,12 @@ description: 图像风格提取／蒸馏与图生图作业规范——风格迁�
 4. 横向目标会**居中裁切**投喂图 → **投喂图要自己先裁成目标比例**，否则接口的居中裁切会把眼镜、脸切掉。
 
 ## 提示词骨架（六块，顺序固定）
+
+0. **FACE 默认段（2026-10-07 用户认可定稿，人像必带）**——eyetest-b 验证帧的五官画法，直接粘贴：
+   `脸部画法（低细节水彩）：眼睛是简单的水彩色块——淡青紫色虹膜一抹、深色瞳孔一点、一条上睫毛线；`
+   `没有多层渐变，没有高光渲染点；鼻唇两三笔浅色；脸颊有水彩色斑式的光斑；皮肤有水彩留白和微妙的颜色变化。`
+   渲染密度是「AI 味」的直接来源（对照实测：渲染脸 15.5% vs 低细节脸 7.9% 弱边缘）——
+   特写/开眼人像**必带此段**；渲染式精致五官是本通道的固有倾向，只能靠正向段压制。
 
 1. **HEAD**：总纲与身份声明——"这是一次风格迁移，不是重新设计"；声明哪张图是身份与颜色的唯一来源、哪张只提供手法、哪张只提供姿态。
 2. **PRESERVE 🔒**：逐项锁死目标图原有的角色特征、服饰配件、道具、背景、姿势、画幅。带 🔒 的条目是"锁死自有属性"，不是"从参考图迁移"，与被判非 🔵 项的"不迁移"同向。
@@ -318,6 +329,7 @@ description: 图像风格提取／蒸馏与图生图作业规范——风格迁�
 | `references/pipeline-notes.md` | 接口约束、脚本口径陷阱、目录分置铁律、已实测结论 |
 | `scripts/audit_and_check.py` | `audit` 输入体检（尺寸／哈希／重复／角色分配）；`check` 生成后体检（色相漂移／留白占比／尺寸） |
 | `scripts/style_metrics.py` | **风格量化对比（2026-10-06 接入；2026-10-07 引擎升级）**：WD14 打标（tag 重合率／差异清单）＋colorgram 调色板；体检出数用，替代肉眼「像不像」判断。**默认引擎已切 `wd-eva02-large-tagger-v3`**（F1 0.4772 WD 系最高；实测多检出 `purple_eyes`/`watermark` 等关键标签——**水印自动检测**入输入体检；旧引擎 `--model-repo SmilingWolf/wd-swinv2-tagger-v3` 可回退） |
+| `scripts/joycaption_cross.py` | **JoyCaption Danbooru 反推×WD14 交叉验证（2026-10-07 试点固化，可选第 6.5 步）**：第二标签源独立反推，分歧标签＝人工复查点（实测双源并集比单一源 +35% 覆盖）；依赖 gradio_client＋requests＋本机代理 |
 | `scripts/series_audit.py` | **系列批量验收（2026-10-07 接入）**：对系列目录每张跑 WD14＋调色板＋亮区色＋edge，产出 per-image json＋汇总表——消除批量抽样盲区 |
 | `scripts/sync_skill.py` | **双目录一键同步（2026-10-07 接入）**：仓库镜像 → `~/.agents/skills/`，逐字节校验＋SKILL 行数报告 |
 | `controlnet_aux`（pip） | **Lineart 线稿提取（2026-10-06 接入）**：`LineartDetector.from_pretrained("lllyasviel/Annotators")`，CPU 可跑——LINE 段分析与线稿对照的客观底稿。⚠ OpenPose/DWPose 对动漫立绘实测失效（真人训练模型，只检出残缺手臂；DWPose 另有 mmpose 依赖 bug），**姿态客观化仍靠人眼＋几何锚点** |
