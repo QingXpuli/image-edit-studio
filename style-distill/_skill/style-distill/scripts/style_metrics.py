@@ -47,13 +47,17 @@ def main() -> int:
     ap.add_argument("output")
     ap.add_argument("--threshold", type=float, default=0.35)
     ap.add_argument("--out", default="")
+    ap.add_argument("--model-repo", default="SmilingWolf/wd-eva02-large-tagger-v3",
+                    help="打标引擎（2026-10-07 默认切 EVA02-Large v3，F1 0.4772 为 WD 系最高；"
+                         "旧引擎 SmilingWolf/wd-swinv2-tagger-v3 可选回退）")
     a = ap.parse_args()
 
-    report = {"调色板": {a.template: palettes(a.template), a.output: palettes(a.output)}}
+    report = {"调色板": {a.template: palettes(a.template), a.output: palettes(a.output)},
+              "打标引擎": a.model_repo}
 
     from wdtagger import Tagger
 
-    tagger = Tagger()
+    tagger = Tagger(model_repo=a.model_repo)
     tagsets = {}
     for name, path in (("模板", a.template), ("产出", a.output)):
         result = tagger.tag(Image.open(path).convert("RGB"))

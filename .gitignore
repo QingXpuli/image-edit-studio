@@ -94,3 +94,15 @@ style-distill/round_lib/user_inputs_zcode.json
 .vscode/
 # ZCode helper / local test artifacts
 .zcodeignore
+
+# ── 4. 会话级临时脚本与本地工作目录（2026-10-07 追加）──────────────
+#  旧 release 会话遗留的一次性脚本 / 探针 / 结果快照：保留本地，不入库
+_release_*
+_audit_*
+_pr1_*
+.agent-teams/
+dsh-probe/
+tools/
+style-distill/round_pool/
+.zimage/
+__pycache__/

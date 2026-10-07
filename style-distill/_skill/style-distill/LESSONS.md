@@ -70,6 +70,20 @@
 - 盘点：走 micuapi 误扣约 5 笔（fidelity probe、snow v1/v2/v4-soft、白烧 v3）；其余主链路全在 geiliapi（用户可见）。
 - 可复用？：是 -> **开工前核对进程 `os.environ` 实际值（base＋key 前缀），每笔调用的 report 记录实际 host**；环境分裂是长会话的隐形地雷。
 
+## 2026-10-07 · JoyCaption 交叉验证试点：三方对比裁决——固化 Danbooru 反推，Art Critic 不固化
+
+- 试点：`sakura-face-fix.png` 经 Space REST API（Gradio 5 异步 event：POST→event_id→GET SSE，gradio_client 的 SSE 流在本机代理下被 CancelledError 杀死——requests+curl 直读 SSE 绕过）跑两种模式。
+- 结果：①**Danbooru tag list**：36 个分层标签（copyright/meta 分层＋correct general tags），与 WD14 的 49 tag 高度互补——WD14 独有 earrings/jewelry/collarbone/smile/blush 等细节，JoyCaption 独有 open_mouth/pink_rose/rose_petals 等归组；②**Art Critic**：通顺但泛（"reminiscent of Japanese anime, dreamlike and tranquil"）——无我们的块面颗粒度，且**未发现我描述之外的缺陷**。
+- 裁决：**Danbooru 反推固化**（第二标签源，与 WD14 交叉验证）；Art Critic 不固化（描述泛于我的块面写法）。试点脚本含 Gradio 5 异步 API 完整组包（upload→event_id→curl SSE）。
+- 可复用？：是 -> `.zimage/work/joycaption_rest.py` 为可用客户端模板；Danbooru 反推作为 WD14 的交叉标签源，分歧标签即人工复查点。
+
+## 2026-10-07 · 脸部 AI 味验证轮：「图一式低细节五官」假设证实
+
+- 实验：同场景（樱花+图一作风法参考）对照——A组精致渲染脸（sakura-face-fix，被用户判 AI 味浓）vs B组「图一式低细节五官」写法（eyetest-b-face.png：淡青紫虹膜一抹＋瞳孔点＋一条睫毛线＋鼻唇两三笔＋皮肤留白）。
+- 结果：B组脸部手绘水彩质感显著、无渲染塑料感——**假设证实：AI 味来自五官渲染密度，低细节色块眼即解**。edge 弱边缘 7.86%（A组 15.52% 的一半以下——细节密度对应「AI 味」感知）。
+- 配套发现：①「低细节五官」与「人物最亮」组合产出柔和自然人像，可直接入模板；②图一式模板句已验证可复用：「淡青紫色虹膜一抹、深色瞳孔点、一条上睫毛线；没有多层渐变，没有高光渲染点；鼻唇两三笔浅色」。
+- 可复用？：是 -> 人像提示词模板新增脸部低细节段；渲染脸出现时的修复方向。
+
 ## 2026-10-07 · 工程化收敛五批完成：规则与工具不再脱节
 
 - 交付：①run_round/gen＋`--input-fidelity {low,high}`（ledger 同步记 `host`＋参数值）——定稿路线并轨正式工具，一次性脚本依赖消除；②图一备份 `D:\ai-backup\`（SHA256 一致）＋`verify_style_source.py` 校验脚本；③`series_audit.py` 批量验收（伞系列-GPT 15 张全量补跑，盲区消除）；④`sync_skill.py` 一键同步＋21 个一次性脚本归档；⑤SKILL/工具表/通道文档终态同步。
@@ -89,6 +103,14 @@
 - 机制：PERSONA 模板的「发丝单向长曲线、平行成组、严禁乱线圈」正向约束在 15 张不同场景下稳定生效——乱线圈可被提示词正向预防（此前只验证过修复）。
 - edge 全批 8.10–16.25%，贴近图一区间（14.20%）；场景表驱动＋断点续跑＋失败重试一次的批量流程再次验证。
 - 可复用？：是 -> GPT 批量必带 PERSONA 发丝正向；双通道系列（Grok 平涂＋GPT 水彩）交付模式成立。
+
+## 2026-10-07 · 批次 A：打标引擎升级 EVA02-Large v3，水印检测意外收获
+
+- 实测：四图双引擎对比（`.zimage/work/engine-compare.json`）。EVA02-Large v3 相对 swinv2-v3：重合率 0.611–0.721（共同判断可靠），系统性多检出细节标签（辫子/季节/水体/视线方向），且**检出图一的 watermark/weibo_username 水印**（swinv2 漏检）。
+- 修正假设：社区说 EVA02「tag 少而置信高」——实测是「**更多更细**」（top5 置信确实更高），并非更少。
+- 应用：①style_metrics 默认引擎切换（旧引擎 --model-repo 可回退）；②**水印检测入输入体检**——参考图投喂前先跑打标查水印（图一水印首次被自动检出）。
+- 工程：hf-xet 下载协议报错（CAS reconstruction error）→ `HF_HUB_DISABLE_XET=1` 退回普通 HTTP 修复。
+- 可复用？：是 -> 已切默认引擎；水印检测可入 audit 流程。
 
 ## 2026-10-07 · 批量系列生产流程验证：15 场景一次通过
 

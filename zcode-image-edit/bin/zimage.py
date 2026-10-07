@@ -790,6 +790,8 @@ def cmd_edit(a) -> int:
             argv += ["--dry-run"]
         if a.model:
             argv += ["--model", a.model]
+        if a.input_fidelity:
+            argv += ["--input-fidelity", a.input_fidelity]
         R.update_manifest(manifest, state="prepared", status="prepared", request_bytes=estimated)
         rc, log = _run(argv, capture=True, env=transport_env)
         R.atomic_write_text(jd / ("recovery.process.log" if recovering else "process.log"), log)
@@ -1042,6 +1044,8 @@ def main() -> int:
     e.add_argument("--encode", default="png", choices=["png", "jpg"])
     e.add_argument("--jpg-quality", type=int, default=90)
     e.add_argument("--model", default="")
+    e.add_argument("--input-fidelity", default="", choices=["", "low", "high"],
+                   help="画风迁移必带：low＝参考图只取画风不保留内容")
     e.add_argument("--budget-mib", type=float, default=1.55)
     e.add_argument("--dry-run", action="store_true", help="只出预算报表与遮罩预览，不发送")
     e.add_argument("--force", action="store_true", help="允许覆盖已有输出")
@@ -1070,6 +1074,7 @@ def main() -> int:
     pl.add_argument("--jpg-quality", type=int, default=90)
     pl.add_argument("--budget-mib", type=float, default=1.55)
     pl.add_argument("--model", default="")
+    pl.add_argument("--input-fidelity", default="", choices=["", "low", "high"])
     pl.add_argument("--no-primary", action="store_true")
     pl.add_argument("--plan-out", default="", help="将本地计划原子写入 JSON artifact")
     pl.add_argument("--job-id", default="", help="计划使用的 job id")

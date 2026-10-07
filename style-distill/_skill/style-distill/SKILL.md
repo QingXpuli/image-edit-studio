@@ -317,7 +317,7 @@ description: 图像风格提取／蒸馏与图生图作业规范——风格迁�
 | `references/identity-library.md` | 身份泄漏词库与两条使用纪律 |
 | `references/pipeline-notes.md` | 接口约束、脚本口径陷阱、目录分置铁律、已实测结论 |
 | `scripts/audit_and_check.py` | `audit` 输入体检（尺寸／哈希／重复／角色分配）；`check` 生成后体检（色相漂移／留白占比／尺寸） |
-| `scripts/style_metrics.py` | **风格量化对比（2026-10-06 接入）**：WD14 打标（tag 重合率／差异清单）＋colorgram 调色板；体检出数用，替代肉眼「像不像」判断 |
+| `scripts/style_metrics.py` | **风格量化对比（2026-10-06 接入；2026-10-07 引擎升级）**：WD14 打标（tag 重合率／差异清单）＋colorgram 调色板；体检出数用，替代肉眼「像不像」判断。**默认引擎已切 `wd-eva02-large-tagger-v3`**（F1 0.4772 WD 系最高；实测多检出 `purple_eyes`/`watermark` 等关键标签——**水印自动检测**入输入体检；旧引擎 `--model-repo SmilingWolf/wd-swinv2-tagger-v3` 可回退） |
 | `scripts/series_audit.py` | **系列批量验收（2026-10-07 接入）**：对系列目录每张跑 WD14＋调色板＋亮区色＋edge，产出 per-image json＋汇总表——消除批量抽样盲区 |
 | `scripts/sync_skill.py` | **双目录一键同步（2026-10-07 接入）**：仓库镜像 → `~/.agents/skills/`，逐字节校验＋SKILL 行数报告 |
 | `controlnet_aux`（pip） | **Lineart 线稿提取（2026-10-06 接入）**：`LineartDetector.from_pretrained("lllyasviel/Annotators")`，CPU 可跑——LINE 段分析与线稿对照的客观底稿。⚠ OpenPose/DWPose 对动漫立绘实测失效（真人训练模型，只检出残缺手臂；DWPose 另有 mmpose 依赖 bug），**姿态客观化仍靠人眼＋几何锚点** |

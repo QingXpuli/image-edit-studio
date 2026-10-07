@@ -334,6 +334,7 @@ class Relay(BaseHTTPRequestHandler):
         s.posts += 1
         s.auth.append(self.headers.get("Authorization"))
         body = self.rfile.read(int(self.headers.get("Content-Length", "0")))
+        s.last_body = body
         s.b64_requested = b'b64_json' in body
         if s.mode == "interrupt":
             raw = b'{"data": ['
@@ -380,6 +381,7 @@ class RealChildren(unittest.TestCase):
         self.server.mode = "b64"
         self.server.fail_get = False
         self.server.image = png_bytes((1024, 1024))
+        self.server.last_body = b""
         thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         thread.start()
         self.addCleanup(self.server.server_close)
@@ -437,6 +439,21 @@ class RealChildren(unittest.TestCase):
         self.assertEqual(self.server.posts, 1)
         self.assertEqual(self.server.gets, 0)
         self.assertIn("cannot_recover_unknown", rr.stdout)
+
+    def test_input_fidelity_passthrough_and_ledger_host(self):
+        # 2026-10-07 第一批：--input-fidelity 透传到 multipart payload；ledger 记录 host。
+        self.server.mode = "b64"
+        r, out, mf, jd = self.edit(extra=["--input-fidelity", "low"])
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.server.posts, 1)
+        self.assertTrue(self.server.last_body.count(b'name="input_fidelity"') >= 1)
+        self.assertGreater(self.server.last_body.find(b'low'), 0)
+        self.assertTrue(out.exists())
+        ledger_line = (self.d / "ledger.jsonl").read_text(encoding="utf-8").strip().splitlines()[-1]
+        rec = json.loads(ledger_line)
+        self.assertTrue(str(rec.get("host", "")).startswith("127.0.0.1"))
+        self.assertEqual(rec.get("input_fidelity"), "low")
+        self.public_safe(jd)
 
     def test_b64_success_then_cache_and_local_snapshot_recovery(self):
         r, out, mf, jd = self.edit()

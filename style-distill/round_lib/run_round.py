@@ -404,7 +404,7 @@ def _run_one(content_p: Path, refs_p: list[Path], prompt_p: Path, out_p: Path,
             mask_invert: bool = False, mask_primary: bool = False,
             encode: str = "png", jpg_quality: int = 90, no_download: bool = False,
             b64_result: bool = True, transport_report=None, snapshot=None,
-            marker=None, recover_from=None) -> int:
+            marker=None, recover_from=None, input_fidelity: str = "") -> int:
     transport_report = transport_report or Path(str(out_p) + ".transport.json")
     snapshot = snapshot or Path(str(out_p) + ".response.private.json")
     marker = marker or Path(str(out_p) + ".submission")
@@ -490,6 +490,7 @@ def _run_one(content_p: Path, refs_p: list[Path], prompt_p: Path, out_p: Path,
                       "prompt_sha1": hashlib.sha1(prompt.encode("utf-8")).hexdigest()[:12],
                       "content": str(content_p), "n_refs": len(refs_p),
                       "mask": str(mask_p), "mask_invert": mask_invert, "coverage_pct": round(cov, 2),
+                      "host": G.BASE.split("//")[-1].split("/")[0],
                       "bytes": total, "http": None, "result": "refused_over_limit",
                       "note": f"{total/1048576:.2f} MiB > {LIMIT_OK_MIB} MiB"})
             return 1
@@ -533,6 +534,10 @@ def _run_one(content_p: Path, refs_p: list[Path], prompt_p: Path, out_p: Path,
 
     fields = {"model": model or G.MODEL, "prompt": send_prompt, "n": "1",
               "size": f"{tw}x{th}", "quality": quality}
+    if input_fidelity:
+        # 2026-10-06 定稿：画风迁移必带（low＝参考图只取画风不保留内容）。
+        # 由调用方显式传入，缺省不带以保持与旧行为兼容。
+        fields["input_fidelity"] = input_fidelity
     if b64_result:
         # 让结果**内联返回**，彻底不走结果 CDN。2026-09-25 实测（同一份 2 张图载荷）：
         #   不传该参数 → 返回 api.mikoto.vip 的 URL；该链路当时只有 0.2–5.4 KB/s、还会被重置，
@@ -545,6 +550,8 @@ def _run_one(content_p: Path, refs_p: list[Path], prompt_p: Path, out_p: Path,
                 "prompt_sha1": hashlib.sha1(prompt.encode("utf-8")).hexdigest()[:12],
                 "content": str(content_p), "n_refs": len(refs_p), "bytes": total,
                 "fields": list(files), "encode": encode,
+                "host": G.BASE.split("//")[-1].split("/")[0],
+                "input_fidelity": input_fidelity or None,
                 "mask": str(mask_p) if mask_p else None,
                 "mask_invert": mask_invert if mask_p else None,
                 "coverage_pct": round(cov, 2) if mask_p else None,
@@ -633,6 +640,8 @@ def main() -> int:
                          "副作用①整图会被轻微微调（均值约 5/255，非逐像素保护）；"
                          "②体积砍半 → 2K（2048×1152 = 1.29 MiB）也能发")
     ap.add_argument("--model", default="", help="覆盖模型（默认 gpt-image-2；备用通道：grok-imagine-edit）")
+    ap.add_argument("--input-fidelity", default="", choices=["", "low", "high"],
+                    help="gpt-image 系画风迁移必带：low＝参考图只取画风不保留内容；缺省不带")
     ap.add_argument("--dry-run", action="store_true",
                     help="只做预算报表（投喂体积／是否被压缩／输出体积／取回时间预估），**不发送**")
     ap.add_argument("--ask", action="store_true",
@@ -675,7 +684,8 @@ def main() -> int:
                           no_download=a.no_download, b64_result=not a.url_result,
                           transport_report=Path(report) if report else None,
                           snapshot=Path(a.snapshot) if a.snapshot else None,
-                          recover_from=Path(a.recover_from) if a.recover_from else None)
+                          recover_from=Path(a.recover_from) if a.recover_from else None,
+                          input_fidelity=a.input_fidelity)
         return rc
 
     print(f"并行发送 {len(jobs)} 个方案（并发 {a.concurrency}）", flush=True)
@@ -685,7 +695,8 @@ def main() -> int:
             print(f"  -> {p.name} => {o.name}", flush=True)
             futs.append(ex.submit(run_one, c, r, p, o, tw, th, a.pad, a.quality, budget,
                                   a.check_target or None, mask_p, a.model, a.dry_run, a.ask,
-                                  a.mask_invert, a.mask_primary, a.encode, a.jpg_quality, a.no_download, not a.url_result))
+                                  a.mask_invert, a.mask_primary, a.encode, a.jpg_quality, a.no_download, not a.url_result,
+                                  None, None, None, None, a.input_fidelity))
         return max(f.result() for f in futs)
 
 

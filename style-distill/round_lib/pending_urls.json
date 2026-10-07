@@ -274,5 +274,11 @@
     "url": "https://v4-gateway-v3.fycsai.com/v1/images/assets/9759a918-89fc-441c-8e5e-3902f1ba48ac",
     "status": "done",
     "ts": "2026-10-06 15:08:05"
+  },
+  {
+    "out": "产图\\gate-e2e.png",
+    "url": "https://v4-gateway-v3-2.fycsai.com/v1/images/assets/6069f914-c20d-4d07-b8b8-59e2fa853ac8",
+    "status": "done",
+    "ts": "2026-10-07 12:15:14"
   }
 ]
