@@ -15,6 +15,7 @@ AI 主导的图生图 / 局部改图 / 风格蒸馏工作台：**自然语言下
 | 计划与预算预检 | `zimage.py plan --plan-out` | 生成可复用 `plan.json`（哈希、指纹、预算），不发送 |
 | 状态与验收 | Job manifest | 请求指纹缓存、原子保存、完整解码、保护区指标、`NEEDS_REVIEW` 语义待审 |
 | 手涂遮罩（可选） | `zimage.py serve` | 本地网页涂遮罩 → 导出 PNG → 回 CLI |
+| 无限画布（可选） | `zimage.py board` | 即梦式：放图、加字、写提示词、生成贴回；仍走 `run_round` |
 | 成果画廊（可选） | `zimage.py gallery` | 八分类页签 + 灯箱 |
 | 风格蒸馏方法论 | `style-distill/` | 七条铁律、开工四问、失败态词库、L0/L1/L2 经验分级 |
 

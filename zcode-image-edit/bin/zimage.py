@@ -5,13 +5,14 @@
 `style-distill/round_lib/run_round.py`（那是本项目的实测主力），本脚本只做三件事：
   1. 把"区域规格"变成遮罩 PNG（调 mask_gen.py）——因为 ZCode 里没有涂抹画布；
   2. 凭据与前置检查（在花钱之前就失败，而不是跑到一半才发现没配 key）；
-  3. 把本地服务（网页手涂 / 画廊）拉起、打开、停掉——替掉 DSH 插件那个"按钮"。
+  3. 把本地服务（网页手涂 / 画廊 / 无限画布）拉起、打开、停掉——替掉 DSH 插件那个"按钮"。
 
 子命令：
   edit      改图：区域→遮罩→调用接口→落盘（默认先给预览，可 --dry-run 不发送）
   local     确定性本地操作（线稿调淡/放大/裁切/拼版/调子剖面），不调接口
   serve     拉起网页手涂页并打开浏览器
   gallery   拉起画廊页并打开浏览器
+  board     拉起无限画布（放图、加字、写提示词、生成贴回）
   stop      停掉上面拉起的服务
   doctor    自检：依赖、凭据、脚本就位、ZCode 存储、技能安装状态（不调接口）
 
@@ -922,6 +923,10 @@ def cmd_gallery(a) -> int:
     return _serve(a, "/gallery")
 
 
+def cmd_board(a) -> int:
+    return _serve(a, "/board")
+
+
 def cmd_stop(a) -> int:
     pf = _pidfile(a.port)
     if not pf.is_file():
@@ -1092,6 +1097,12 @@ def main() -> int:
     g.add_argument("--foreground", action="store_true")
     g.add_argument("--no-open", action="store_true")
     g.set_defaults(fn=cmd_gallery)
+
+    bd = sub.add_parser("board", help="拉起无限画布（即梦式：放图、加字、写提示词、生成贴回）")
+    bd.add_argument("--port", type=int, default=8000)
+    bd.add_argument("--foreground", action="store_true")
+    bd.add_argument("--no-open", action="store_true")
+    bd.set_defaults(fn=cmd_board)
 
     t = sub.add_parser("stop", help="停掉上面拉起的服务")
     t.add_argument("--port", type=int, default=8000)

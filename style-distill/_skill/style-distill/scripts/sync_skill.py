@@ -20,6 +20,7 @@ FILES = [
     "references/pipeline-notes.md",
     "scripts/style_metrics.py",
     "scripts/series_audit.py",
+    "scripts/extract_source.py",
 ]
 
 

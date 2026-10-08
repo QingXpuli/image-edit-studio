@@ -2569,6 +2569,14 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/gallery/img":
             qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
             return self._gallery_image((qs.get("p") or [""])[0])
+        elif path == "/board":
+            return self._board_page()
+        elif path == "/board/img":
+            qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            return self._board_image((qs.get("p") or [""])[0])
+        elif path == "/api/board":
+            import board_app
+            return self._json(board_app.load_board())
         else:
             self._send(404, b"not found", "text/plain; charset=utf-8")
 
@@ -2580,7 +2588,67 @@ class Handler(BaseHTTPRequestHandler):
             return self.api_models()
         if path == "/api/edit":
             return self.api_edit()
+        if path == "/api/board/save":
+            return self.api_board_save()
+        if path == "/api/board/upload":
+            return self.api_board_upload()
+        if path == "/api/board/generate":
+            return self.api_board_generate()
+        if path == "/api/board/extract":
+            return self.api_board_extract()
         self._json({"ok": False, "message": "unknown endpoint"}, 404)
+
+    def _board_page(self):
+        p = os.path.join(os.path.dirname(__file__), "board.html")
+        try:
+            with open(p, encoding="utf-8") as f:
+                return self._send(200, f.read().encode("utf-8"), "text/html; charset=utf-8")
+        except OSError as e:
+            return self._send(500, str(e).encode("utf-8"), "text/plain; charset=utf-8")
+
+    def _board_image(self, wanted: str):
+        import board_app
+        p = board_app.allowed_path(wanted)
+        if p is None:
+            return self._send(404, b"not found", "text/plain; charset=utf-8")
+        ext = p.suffix.lower()
+        ctype = ("image/png" if ext == ".png"
+                 else "image/jpeg" if ext in (".jpg", ".jpeg")
+                 else "image/webp" if ext == ".webp" else "image/gif")
+        try:
+            return self._send(200, p.read_bytes(), ctype)
+        except OSError as e:
+            return self._send(500, str(e).encode("utf-8"), "text/plain; charset=utf-8")
+
+    def api_board_save(self):
+        import board_app
+        j = self._read_json()
+        return self._json(board_app.save_board(j))
+
+    def api_board_upload(self):
+        import board_app
+        j = self._read_json()
+        try:
+            info = board_app.save_upload_b64(j.get("name") or "drop.png", j.get("data_b64") or "")
+        except Exception as e:
+            return self._json({"ok": False, "message": str(e)}, 400)
+        info["ok"] = True
+        return self._json(info)
+
+    def api_board_generate(self):
+        import board_app
+        j = self._read_json()
+        board = board_app.load_board()
+        dry = bool(j.get("dry_run"))
+        no_cache = bool(j.get("no_cache")) or not dry
+        return self._json(board_app.run_edit(board, dry_run=dry, no_cache=no_cache))
+
+    def api_board_extract(self):
+        import board_app
+        j = self._read_json()
+        board = board_app.load_board()
+        node_id = str(j.get("node_id") or "")
+        return self._json(board_app.run_extract(board, node_id))
 
     # ---- api: ping ----
     def api_ping(self):

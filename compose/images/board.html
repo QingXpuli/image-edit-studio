@@ -1,0 +1,1132 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>画布</title>
+<style>
+:root {
+  --bg: #f4f5f7; --ink: #111827; --muted: #6b7280; --line: #e5e7eb;
+  --panel: #ffffff; --blue: #2563eb; --ok: #059669; --err: #dc2626;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; overflow: hidden; color: var(--ink);
+  font: 13px/1.45 ui-sans-serif, system-ui, "Segoe UI", sans-serif; background: var(--bg); }
+button, textarea, select, input { font: inherit; color: inherit; }
+button { cursor: pointer; }
+.app { height: 100%; display: flex; flex-direction: column; }
+.top {
+  height: 48px; display: flex; align-items: center; gap: 8px; padding: 0 12px;
+  background: var(--panel); border-bottom: 1px solid var(--line); z-index: 8;
+}
+.top .title { font-weight: 650; margin-right: auto; }
+.ghost { background: none; border: 0; padding: 6px 10px; color: var(--muted); border-radius: 8px; }
+.ghost:hover { background: #f3f4f6; color: var(--ink); }
+.stage { flex: 1; position: relative; min-height: 0; }
+#world {
+  width: 100%; height: 100%; overflow: hidden; cursor: default;
+  background:
+    linear-gradient(#eceff3 1px, transparent 1px) 0 0 / 32px 32px,
+    linear-gradient(90deg, #eceff3 1px, transparent 1px) 0 0 / 32px 32px,
+    #f7f8fa;
+  touch-action: none;
+}
+#world.panning, #world.space { cursor: grabbing; }
+#world.drop { outline: 2px dashed var(--blue); outline-offset: -10px; }
+#world.wiring { cursor: crosshair; }
+#layer { position: absolute; left: 0; top: 0; transform-origin: 0 0; will-change: transform; }
+#wires { position: absolute; inset: 0; overflow: visible; pointer-events: none; }
+#wires .wire-hit { pointer-events: stroke; cursor: pointer; }
+.obj {
+  position: absolute; user-select: none; border: 1.5px solid #e5e7eb; border-radius: 12px;
+  cursor: default; background: #fff; box-shadow: 0 8px 24px #0000000d;
+  display: flex; flex-direction: column;
+}
+.obj:hover { border-color: #93c5fd; }
+.obj.selected { border-color: var(--blue); box-shadow: 0 0 0 3px #2563eb22; }
+.obj.dragging { z-index: 4; }
+.obj .cap {
+  font-size: 11px; color: var(--muted); padding: 7px 12px 4px 28px; cursor: grab;
+  position: relative; z-index: 8; flex: none; border-bottom: 1px solid #f3f4f6;
+}
+.obj .cap::before {
+  content: ""; position: absolute; left: 10px; top: 50%; transform: translateY(-50%);
+  width: 10px; height: 10px;
+  background:
+    radial-gradient(#c4cdd8 1.15px, transparent 1.3px) 0 0 / 4px 4px,
+    radial-gradient(#c4cdd8 1.15px, transparent 1.3px) 2px 2px / 4px 4px;
+}
+.obj.dragging .cap { cursor: grabbing; }
+.obj .slot { position: relative; flex: 1; min-height: 36px; }
+.obj .body-drag { cursor: grab; }
+.obj.image { cursor: grab; }
+.obj.image .cap { display: none; }
+.obj.image .slot { min-height: 0; overflow: hidden; border-radius: 10px; }
+.obj.image img { display: block; width: 100%; height: 100%; background: #f9fafb; object-fit: cover; pointer-events: none; }
+.obj.image.dragging { cursor: grabbing; }
+.obj.image .port-strip { height: 70%; top: 15%; width: 22px; }
+.preview {
+  position: fixed; inset: 0; z-index: 40; display: none;
+  align-items: center; justify-content: center; background: #000000cc; cursor: zoom-out;
+}
+.preview.show { display: flex; }
+.preview img { max-width: 92vw; max-height: 92vh; object-fit: contain; border-radius: 8px; box-shadow: 0 24px 80px #0008; }
+.obj.text {
+  min-width: 160px; min-height: 72px; white-space: pre-wrap; max-width: 320px;
+  overflow: visible;
+}
+.obj.text .slot { overflow: visible; }
+.obj.extract {
+  width: 280px; min-height: 160px;
+  background: linear-gradient(#fff, #f7fee7);
+}
+.obj.gen {
+  width: 268px; min-height: 188px;
+  background: linear-gradient(#fff, #f8fafc);
+}
+.obj.gen .slot { min-height: 0; overflow: hidden; }
+.gen-form { padding: 6px 10px 10px; display: flex; flex-direction: column; gap: 6px; height: 100%; min-height: 0; }
+.gen-form select, .gen-form textarea {
+  width: 100%; border: 1px solid var(--line); border-radius: 8px; padding: 4px 6px; background: #fff;
+}
+.gen-form textarea { flex: 1; min-height: 38px; resize: none; overflow: auto; }
+.gen-form .pair { display: flex; gap: 6px; }
+.gen-form .pair select { flex: 1; min-width: 0; }
+.gen-form label { font-size: 11px; color: var(--muted); display: flex; gap: 6px; align-items: center; }
+.gen-form .gen-hint { font-size: 11px; color: var(--muted); min-height: 14px; }
+.gen-form .gen-actions { display: flex; gap: 6px; }
+.gen-form .gen-actions .btn { flex: 1; padding: 6px 8px; }
+.marquee {
+  position: absolute; border: 1px dashed var(--blue); background: #2563eb22;
+  pointer-events: none; z-index: 5;
+}
+.obj.rect { background: #ef444428; border: 2px solid #ef4444; border-radius: 4px; pointer-events: none; box-shadow: none; }
+.handle {
+  position: absolute; z-index: 9;
+}
+.handle.br {
+  width: 16px; height: 16px; right: 3px; bottom: 3px;
+  background:
+    linear-gradient(135deg, transparent 45%, #64748b 45% 55%, transparent 55%) 2px 2px / 6px 6px,
+    linear-gradient(135deg, transparent 45%, #64748b 45% 55%, transparent 55%) 6px 6px / 6px 6px,
+    #fff;
+  border: 1.5px solid #94a3b8; border-radius: 4px; cursor: nwse-resize;
+  box-shadow: 0 0 0 2px #ffffffcc;
+}
+.handle.e {
+  top: 32px; right: -4px; width: 12px; bottom: 18px; cursor: ew-resize;
+}
+.handle.s {
+  left: 10px; right: 18px; bottom: -4px; height: 12px; cursor: ns-resize;
+}
+.obj.selected .handle.e:hover, .obj.selected .handle.s:hover { background: #2563eb33; }
+.port-strip {
+  position: absolute; top: 0; height: 100%; width: 28px; z-index: 10;
+  cursor: crosshair;
+}
+.port-strip.in { left: -18px; }
+.port-strip.out { right: -18px; }
+.obj.text .port-strip, .obj.extract .port-strip {
+  top: 26px; height: calc(100% - 28px); width: 36px;
+}
+.obj.text .port-strip.in, .obj.extract .port-strip.in { left: -22px; }
+.obj.text .port-strip.out, .obj.extract .port-strip.out { right: -22px; }
+.obj.text .port, .obj.extract .port {
+  width: 16px; height: 16px; border-width: 3px;
+}
+.port-strip.in:hover, .port-strip.in.hot {
+  background: linear-gradient(90deg, #2563eb33, #2563eb00);
+}
+.port-strip.out:hover, .port-strip.out.hot {
+  background: linear-gradient(270deg, #2563eb33, #2563eb00);
+}
+.port {
+  position: absolute; width: 14px; height: 14px; border-radius: 50%;
+  background: #fff; border: 2.5px solid #64748b; pointer-events: none;
+  top: 50%; left: 50%; transform: translate(-50%, -50%);
+  box-shadow: 0 0 0 3px #ffffffcc;
+}
+.port-strip:hover .port, .port-strip.hot .port {
+  border-color: var(--blue); background: #dbeafe; transform: translate(-50%, -50%) scale(1.35);
+}
+.ctx {
+  position: absolute; z-index: 20; min-width: 188px; padding: 8px 0;
+  background: #fff; border: 1px solid var(--line); border-radius: 12px;
+  box-shadow: 0 16px 40px #00000022; display: none;
+}
+.ctx.show { display: block; }
+.ctx .hd { padding: 6px 14px 8px; font-size: 12px; color: var(--muted); }
+.ctx button {
+  display: block; width: 100%; text-align: left; border: 0; background: none;
+  padding: 8px 14px;
+}
+.ctx button:hover { background: #f3f4f6; }
+.ctx hr { border: 0; border-top: 1px solid var(--line); margin: 6px 0; }
+.badge {
+  position: absolute; left: 8px; bottom: 8px; font-size: 11px; padding: 2px 6px;
+  border-radius: 999px; background: #111827; color: #fff; pointer-events: none;
+}
+.rail {
+  position: absolute; left: 12px; top: 12px;
+  display: flex; flex-direction: column; gap: 2px; padding: 6px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+  box-shadow: 0 10px 30px #00000012; z-index: 6;
+}
+.rail button {
+  width: 48px; height: 44px; border: 0; background: none; border-radius: 10px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 1px; font-size: 10px; color: var(--muted);
+}
+.rail button:hover, .rail button.active { background: #eef2ff; color: var(--blue); }
+.rail .ico { font-size: 16px; line-height: 1; }
+.hint {
+  position: absolute; left: 50%; top: 42%; transform: translate(-50%,-50%);
+  color: #9ca3af; pointer-events: none; text-align: center; font-size: 14px;
+}
+.hint b { display: block; color: #6b7280; margin-bottom: 4px; }
+.top .zoom {
+  display: flex; align-items: center; gap: 4px; margin-left: 8px; flex: none;
+}
+.top .zoom button { border: 0; background: #f3f4f6; border-radius: 8px; min-width: 28px; height: 28px; padding: 0 8px; }
+.top .zoom span { min-width: 40px; text-align: center; color: var(--muted); font-size: 12px; }
+.dock {
+  position: absolute; left: 50%; bottom: 12px; transform: translateX(-50%);
+  width: min(560px, calc(100% - 180px)); background: var(--panel);
+  border: 1px solid var(--line); border-radius: 14px; padding: 8px 12px;
+  box-shadow: 0 12px 40px #00000018; z-index: 7; display: flex; flex-direction: column; gap: 4px;
+}
+.dock textarea {
+  width: 100%; min-height: 36px; max-height: 88px; border: 0; resize: vertical; outline: none;
+}
+.btn { border: 1px solid var(--line); background: #fff; border-radius: 10px; padding: 7px 12px; }
+.btn.primary { background: var(--ink); color: #fff; border-color: var(--ink); }
+.inspector {
+  position: absolute; right: 16px; top: 16px; width: 250px; background: var(--panel);
+  border: 1px solid var(--line); border-radius: 14px; padding: 12px; z-index: 6;
+  box-shadow: 0 10px 30px #00000012; display: none;
+}
+.inspector.show { display: block; }
+.inspector h2 { margin: 0 0 8px; font-size: 12px; color: var(--muted); }
+.inspector .row { display: flex; gap: 6px; margin-top: 8px; }
+.inspector .row .btn { flex: 1; }
+.msg { font-size: 12px; color: var(--muted); white-space: pre-wrap; min-height: 16px; }
+.msg.err { color: var(--err); }
+.msg.ok { color: var(--ok); }
+#file { display: none; }
+a { color: inherit; text-decoration: none; }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="top">
+    <a class="ghost" href="/">遮罩</a>
+    <a class="ghost" href="/gallery">画廊</a>
+    <div class="title">未命名画布</div>
+    <button class="ghost" id="toggleWires">连线开</button>
+    <span class="ghost" id="nodeCount">节点 0</span>
+    <span class="ghost" id="status">已保存</span>
+    <div class="zoom">
+      <button id="zoomOut" title="缩小">−</button>
+      <span id="zoomLabel">100%</span>
+      <button id="zoomIn" title="放大">+</button>
+      <button id="fit" title="复位视角">复位</button>
+    </div>
+  </div>
+  <div class="stage">
+    <div id="world">
+      <div id="layer">
+        <svg id="wires"></svg>
+      </div>
+      <div class="hint" id="emptyHint"><b>双击空白</b>新建节点 · 从端口拖到空白可接上新节点</div>
+    <div class="ctx" id="ctx">
+      <div class="hd" id="ctxHd">新建节点</div>
+      <button data-act="text">文本</button>
+      <button data-act="upload">图片</button>
+      <button data-act="extract">提取</button>
+      <button data-act="gen">生成</button>
+    </div>
+    </div>
+    <div class="rail">
+      <button id="toolText" title="文本"><span class="ico">T</span>文本</button>
+      <button id="toolImage" title="图片"><span class="ico">▣</span>图片</button>
+      <button id="toolGen" title="生成"><span class="ico">▶</span>生成</button>
+      <button id="toolExtract" title="提取姿态/风格"><span class="ico">◎</span>提取</button>
+      <button id="toolRect" title="圈选"><span class="ico">▭</span>圈选</button>
+      <button id="toolDel" title="删除"><span class="ico">✕</span>删除</button>
+    </div>
+    <div class="inspector" id="inspector">
+      <h2 id="inspTitle">节点</h2>
+      <div class="row" id="inspImageBtns">
+        <button class="btn" id="setIdent">设为图一</button>
+        <button class="btn" id="setRef">设为图二</button>
+      </div>
+      <p class="msg" style="margin:8px 0 0">接线后仍可改。先点的图当图一，或点按钮指定。</p>
+    </div>
+    <div class="dock">
+      <textarea id="prompt" placeholder="补充提示词（可与生成节点、文本节点叠加）"></textarea>
+      <div class="msg" id="msg">生成在节点上点。点图可设图一 / 图二；接线后仍可改。</div>
+    </div>
+    <select id="size" hidden>
+      <option>1024x1536</option>
+      <option>1536x1024</option>
+      <option>1024x1024</option>
+    </select>
+    <select id="pad" hidden>
+      <option value="pad">补边</option>
+      <option value="crop">裁切</option>
+    </select>
+    <input type="checkbox" id="fidelity" hidden />
+  </div>
+</div>
+<div class="preview" id="preview"><img id="previewImg" alt="" /></div>
+<input id="file" type="file" accept="image/*" multiple />
+<script>
+const world = document.getElementById('world');
+const layer = document.getElementById('layer');
+const wires = document.getElementById('wires');
+const msg = document.getElementById('msg');
+const emptyHint = document.getElementById('emptyHint');
+const inspector = document.getElementById('inspector');
+let state = { cam:{x:80,y:80,z:1}, objects:[], edges:[], prompt:'', size:'1024x1536', pad:'pad', input_fidelity:'', identityId:'', refId:'', genId:'' };
+let selected = null, selectedIds = new Set(), space = false, panning = false, dragging = null, resizing = null, rectDraft = null, placingText = false;
+let wiring = null, pendingWire = null, selectedEdge = null, showWires = true, saveTimer = null, ctxAt = null, marquee = null;
+const els = new Map();
+const ctxMenu = document.getElementById('ctx');
+const preview = document.getElementById('preview');
+const previewImg = document.getElementById('previewImg');
+
+function uid(){ return Math.random().toString(36).slice(2,10); }
+function setMsg(t, kind){ msg.className = 'msg' + (kind? ' '+kind:''); msg.textContent = t; }
+function imgUrl(p){ return '/board/img?p=' + encodeURIComponent(p); }
+function applyCam(){
+  layer.style.transform = `translate(${state.cam.x}px, ${state.cam.y}px) scale(${state.cam.z})`;
+  document.getElementById('zoomLabel').textContent = Math.round(state.cam.z*100) + '%';
+  drawWires();
+}
+function screenToWorld(sx, sy){
+  const r = world.getBoundingClientRect();
+  return { x: (sx - r.left - state.cam.x)/state.cam.z, y: (sy - r.top - state.cam.y)/state.cam.z };
+}
+function obj(id){ return state.objects.find(o => o.id===id); }
+function scheduleSave(){
+  document.getElementById('status').textContent = '…';
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(save, 280);
+}
+function nodeBox(o){
+  if (o.type==='image') return {x:o.x,y:o.y,w:o.w,h:o.h};
+  if (o.type==='gen') return {x:o.x,y:o.y,w:o.w||268,h:o.h||188};
+  if (o.type==='extract') return {x:o.x,y:o.y,w:o.w||280,h:o.h||168};
+  const el = els.get(o.id);
+  return {x:o.x,y:o.y,w: el? el.offsetWidth: 180, h: el? el.offsetHeight: 72};
+}
+function portPos(o, side){
+  const b = nodeBox(o);
+  return { x: side==='out' ? b.x + b.w : b.x, y: b.y + b.h/2 };
+}
+
+function placeEl(o, el){
+  if (o.type === 'rect'){
+    const p = obj(o.parent); if (!p) return;
+    el.style.left = (p.x + o.nx*p.w)+'px';
+    el.style.top = (p.y + o.ny*p.h)+'px';
+    el.style.width = (o.nw*p.w)+'px';
+    el.style.height = (o.nh*p.h)+'px';
+    return;
+  }
+  el.style.left = o.x+'px'; el.style.top = o.y+'px';
+  if (o.type==='image'){ el.style.width = o.w+'px'; el.style.height = o.h+'px'; }
+  if (o.type==='gen' || o.type==='extract'){
+    o.w = Math.max(o.w||0, o.type==='extract' ? 240 : 220);
+    o.h = Math.max(o.h||0, o.type==='extract' ? 140 : 160);
+    el.style.width = o.w+'px';
+    el.style.height = o.h+'px';
+  }
+}
+
+function addResizeHandle(el, o, kind){
+  const h = document.createElement('div');
+  h.className = 'handle ' + kind;
+  h.addEventListener('pointerdown', e => {
+    e.stopPropagation(); e.preventDefault();
+    try { h.setPointerCapture(e.pointerId); } catch (_){}
+    selected = o.id; selectedIds = new Set([o.id]);
+    resizing = {
+      id: o.id, kind,
+      start: screenToWorld(e.clientX, e.clientY),
+      w: o.w || (kind==='br' && o.type!=='image' ? 268 : o.w),
+      h: o.h || (o.type==='gen' ? 188 : o.h),
+      free: o.type==='gen' || o.type==='extract'
+    };
+    syncSelection();
+  });
+  el.appendChild(h);
+}
+
+function addPorts(slot, o){
+  if (o.type==='rect') return;
+  for (const side of ['in','out']){
+    const strip = document.createElement('div');
+    strip.className = 'port-strip ' + side;
+    strip.dataset.side = side;
+    const p = document.createElement('div');
+    p.className = 'port ' + side;
+    strip.appendChild(p);
+    strip.addEventListener('pointerdown', e => {
+      e.stopPropagation(); e.preventDefault();
+      selected = o.id;
+      wiring = { from: o.id, fromSide: side, x: 0, y: 0 };
+      world.classList.add('wiring');
+      syncSelection();
+    });
+    slot.appendChild(strip);
+  }
+}
+
+function nearestInPort(wx, wy, exceptId){
+  let best = null, bestD = 88;
+  for (const o of state.objects){
+    if (o.type==='rect' || o.id===exceptId) continue;
+    const b = nodeBox(o);
+    const p = portPos(o, 'in');
+    const onNode = wx >= b.x - 48 && wx <= b.x + b.w + 24 && wy >= b.y - 12 && wy <= b.y + b.h + 12;
+    const onLeftEdge = wx >= b.x - 48 && wx <= b.x + 40 && wy >= b.y - 12 && wy <= b.y + b.h + 12;
+    let d;
+    if (onLeftEdge) d = Math.abs(p.y - wy) * 0.35;
+    else if (onNode && (o.type==='text' || o.type==='extract' || o.type==='gen')) d = Math.hypot(p.x - wx, p.y - wy) * 0.55;
+    else d = Math.hypot(p.x - wx, p.y - wy);
+    if (d < bestD){ bestD = d; best = o; }
+  }
+  return best;
+}
+
+function highlightPort(id){
+  for (const [oid, el] of els){
+    const pin = el.querySelector('.port-strip.in');
+    if (pin) pin.classList.toggle('hot', oid===id);
+  }
+}
+
+function hideCtx(){ ctxMenu.classList.remove('show'); pendingWire = null; document.getElementById('ctxHd').textContent = '新建节点'; }
+function showCtx(sx, sy, worldPt, title){
+  ctxAt = worldPt;
+  const r = world.getBoundingClientRect();
+  ctxMenu.style.left = (sx - r.left) + 'px';
+  ctxMenu.style.top = (sy - r.top) + 'px';
+  document.getElementById('ctxHd').textContent = title || '新建节点';
+  ctxMenu.classList.add('show');
+}
+
+function ensureEl(o){
+  let el = els.get(o.id);
+  if (el) return el;
+  el = document.createElement('div');
+  el.className = 'obj ' + o.type;
+  el.dataset.id = o.id;
+  if (o.type !== 'image'){
+    const cap = document.createElement('div');
+    cap.className = 'cap';
+    cap.dataset.drag = '1';
+    cap.textContent = o.type==='gen' ? '生成' : o.type==='extract' ? '提取' : '文本';
+    el.appendChild(cap);
+  }
+  const slot = document.createElement('div');
+  slot.className = 'slot';
+  if (o.type === 'image') slot.dataset.drag = '1';
+  el.appendChild(slot);
+  if (o.type === 'image'){
+    const im = document.createElement('img');
+    im.src = imgUrl(o.path);
+    im.alt = o.name || '图片';
+    slot.appendChild(im);
+    const badge = document.createElement('div');
+    badge.className = 'badge'; badge.hidden = true; el.appendChild(badge);
+    addResizeHandle(el, o, 'br');
+    el.addEventListener('dblclick', e => {
+      if (e.target.closest('.port-strip') || e.target.closest('.handle')) return;
+      e.stopPropagation();
+      openPreview(o);
+    });
+  } else if (o.type === 'text'){
+    el.contentEditable = 'false';
+    const body = document.createElement('div');
+    body.className = 'tbody body-drag';
+    body.dataset.drag = '1';
+    body.style.padding = '6px 12px 10px';
+    body.textContent = o.text || '';
+    slot.appendChild(body);
+    el.addEventListener('dblclick', e => {
+      e.stopPropagation();
+      el.contentEditable = 'true'; el.focus();
+    });
+    el.addEventListener('blur', () => {
+      el.contentEditable = 'false';
+      const tb = el.querySelector('.tbody');
+      if (tb) o.text = tb.innerText;
+      scheduleSave();
+    });
+  } else if (o.type === 'gen'){
+    fillGenForm(o, slot);
+    addResizeHandle(el, o, 'e');
+    addResizeHandle(el, o, 's');
+    addResizeHandle(el, o, 'br');
+  } else if (o.type === 'extract'){
+    fillExtractForm(o, slot);
+    addResizeHandle(el, o, 'e');
+    addResizeHandle(el, o, 's');
+    addResizeHandle(el, o, 'br');
+  }
+  addPorts(el, o);
+  el.addEventListener('pointerdown', onObjDown);
+  layer.appendChild(el);
+  els.set(o.id, el);
+  return el;
+}
+
+function fillGenForm(o, slot){
+  slot.innerHTML = '';
+  const form = document.createElement('div');
+  form.className = 'gen-form';
+  const prompt = document.createElement('textarea');
+  prompt.placeholder = '节点提示词（可与连上的文本叠加）';
+  prompt.value = o.prompt || '';
+  prompt.addEventListener('pointerdown', e => e.stopPropagation());
+  prompt.addEventListener('wheel', e => e.stopPropagation());
+  prompt.addEventListener('input', () => { o.prompt = prompt.value; scheduleSave(); });
+  const size = document.createElement('select');
+  for (const s of ['1024x1536','1536x1024','1024x1024']){
+    const opt = document.createElement('option'); opt.value = s; opt.textContent = s;
+    if ((o.size || state.size || '1024x1536') === s) opt.selected = true;
+    size.appendChild(opt);
+  }
+  size.addEventListener('pointerdown', e => e.stopPropagation());
+  size.addEventListener('change', () => { o.size = size.value; state.size = size.value; document.getElementById('size').value = size.value; scheduleSave(); });
+  const pad = document.createElement('select');
+  pad.innerHTML = '<option value="pad">补边</option><option value="crop">裁切</option>';
+  pad.value = o.pad || state.pad || 'pad';
+  pad.addEventListener('pointerdown', e => e.stopPropagation());
+  pad.addEventListener('change', () => { o.pad = pad.value; state.pad = pad.value; document.getElementById('pad').value = pad.value; scheduleSave(); });
+  const channel = document.createElement('select');
+  channel.innerHTML = '<option value="gpt">GPT</option><option value="grok">Grok</option>';
+  channel.value = o.channel || 'gpt';
+  channel.addEventListener('pointerdown', e => e.stopPropagation());
+  channel.addEventListener('change', () => {
+    o.channel = channel.value;
+    if (o.channel === 'grok'){
+      o.size = '1024x1024';
+      size.value = '1024x1024';
+      document.getElementById('size').value = '1024x1024';
+    }
+    scheduleSave(); syncSelection();
+  });
+  const fid = document.createElement('label');
+  fid.innerHTML = '<input type="checkbox" /> input_fidelity=low';
+  const box = fid.querySelector('input');
+  box.checked = (o.input_fidelity || state.input_fidelity) === 'low';
+  box.addEventListener('pointerdown', e => e.stopPropagation());
+  box.addEventListener('change', () => {
+    o.input_fidelity = box.checked ? 'low' : '';
+    state.input_fidelity = o.input_fidelity;
+    document.getElementById('fidelity').checked = box.checked;
+    scheduleSave();
+  });
+  const hint = document.createElement('div');
+  hint.className = 'gen-hint';
+  const actions = document.createElement('div');
+  actions.className = 'gen-actions';
+  const budgetBtn = document.createElement('button');
+  budgetBtn.type = 'button'; budgetBtn.className = 'btn'; budgetBtn.textContent = '预算';
+  budgetBtn.addEventListener('pointerdown', e => e.stopPropagation());
+  budgetBtn.addEventListener('click', e => { e.stopPropagation(); state.genId = o.id; generate(true); });
+  const sendBtn = document.createElement('button');
+  sendBtn.type = 'button'; sendBtn.className = 'btn primary'; sendBtn.textContent = '生成';
+  sendBtn.addEventListener('pointerdown', e => e.stopPropagation());
+  sendBtn.addEventListener('click', e => {
+    e.stopPropagation();
+    state.genId = o.id;
+    if (!confirm('确认发送一次生成请求？将跳过本地缓存、真正请求上游。受理未知不会自动重试。')) return;
+    generate(false);
+  });
+  actions.appendChild(budgetBtn); actions.appendChild(sendBtn);
+  const pair = document.createElement('div');
+  pair.className = 'pair';
+  pair.appendChild(channel); pair.appendChild(size); pair.appendChild(pad);
+  form.appendChild(prompt); form.appendChild(pair); form.appendChild(fid); form.appendChild(hint); form.appendChild(actions);
+  slot.appendChild(form);
+}
+
+function fillExtractForm(o, slot){
+  slot.innerHTML = '';
+  const form = document.createElement('div');
+  form.className = 'gen-form';
+  const kind = document.createElement('select');
+  kind.innerHTML = '<option value="pose">姿态/动作</option><option value="style">风格/画法</option><option value="all">姿态+风格</option>';
+  kind.value = o.kind || 'all';
+  kind.addEventListener('pointerdown', e => e.stopPropagation());
+  kind.addEventListener('change', () => { o.kind = kind.value; scheduleSave(); });
+  const body = document.createElement('textarea');
+  body.placeholder = '把图连到左侧，点提取。会按生图技能编成 HEAD / PRESERVE / POSE 或 STYLE / DO NOT INCLUDE。';
+  body.value = o.text || '';
+  body.addEventListener('pointerdown', e => e.stopPropagation());
+  body.addEventListener('wheel', e => e.stopPropagation());
+  body.addEventListener('input', () => { o.text = body.value; scheduleSave(); });
+  const hint = document.createElement('div');
+  hint.className = 'gen-hint';
+  hint.textContent = '本地量图 + 技能编译，不请求上游';
+  const run = document.createElement('button');
+  run.type = 'button'; run.className = 'btn primary'; run.textContent = '提取';
+  run.addEventListener('pointerdown', e => e.stopPropagation());
+  run.addEventListener('click', e => { e.stopPropagation(); runExtract(o.id, body, hint); });
+  form.appendChild(kind); form.appendChild(body); form.appendChild(hint); form.appendChild(run);
+  slot.appendChild(form);
+}
+
+async function runExtract(id, bodyEl, hintEl){
+  await save();
+  if (hintEl) hintEl.textContent = '正在本地提取…';
+  setMsg('正在本地提取（不请求上游）…');
+  const r = await post('/api/board/extract', { node_id: id });
+  if (!r.ok){ setMsg(r.message||'提取失败','err'); if (hintEl) hintEl.textContent = r.message||'失败'; return; }
+  const o = obj(id);
+  if (o) o.text = r.text || o.text;
+  if (bodyEl && r.text) bodyEl.value = r.text;
+  if (hintEl) hintEl.textContent = '已提取 · 可接到生成节点';
+  setMsg(r.message||'已提取','ok');
+  syncAll(); scheduleSave();
+}
+
+function graphRoles(){
+  const gen = obj(state.genId) || state.objects.filter(o => o.type==='gen')[0];
+  const images = [], texts = [];
+  if (gen){
+    for (const e of state.edges){
+      if (e.to !== gen.id) continue;
+      const src = obj(e.from); if (!src) continue;
+      if (src.type==='image' && !images.some(i => i.id===src.id)) images.push(src);
+      if ((src.type==='text' || src.type==='extract') && (src.text||'').trim()) texts.push(src);
+    }
+  }
+  const ident = images.find(i => i.id===state.identityId) || images[0] || obj(state.identityId);
+  let ref = images.find(i => i.id===state.refId && i.id!==ident?.id) || null;
+  if (!ref && images.length) ref = images.find(i => i.id!==ident?.id) || null;
+  if (!images.length) ref = obj(state.refId);
+  return { gen, ident, ref, texts, images };
+}
+
+function addEdge(from, to){
+  if (!from || !to || from===to) return;
+  if (state.edges.some(e => e.from===from && e.to===to)) return;
+  state.edges.push({ id: uid(), from, to });
+  if (obj(to)?.type==='gen') state.genId = to;
+  scheduleSave();
+  syncSelection();
+}
+
+function drawWires(){
+  const boxes = state.objects.map(o => nodeBox(o));
+  const maxX = Math.max(800, ...boxes.map(b => b.x+b.w+40), 0);
+  const maxY = Math.max(600, ...boxes.map(b => b.y+b.h+40), 0);
+  wires.setAttribute('width', maxX);
+  wires.setAttribute('height', maxY);
+  if (!showWires){ wires.innerHTML = ''; return; }
+  let html = '';
+  for (const e of state.edges){
+    const a = obj(e.from), b = obj(e.to); if (!a||!b) continue;
+    const p1 = portPos(a,'out'), p2 = portPos(b,'in');
+    const mid = (p1.x+p2.x)/2;
+    const d = `M ${p1.x} ${p1.y} C ${mid} ${p1.y}, ${mid} ${p2.y}, ${p2.x} ${p2.y}`;
+    const active = selectedEdge===e.id;
+    html += `<path class="wire-hit" data-edge="${e.id}" d="${d}" fill="none" stroke="transparent" stroke-width="16"/>`;
+    html += `<path d="${d}" fill="none" stroke="${active ? '#1d4ed8' : '#2563eb'}" stroke-width="${active ? 3 : 2}"/>`;
+  }
+  if (wiring){
+    const a = obj(wiring.from);
+    if (a){
+      const p1 = portPos(a, wiring.fromSide === 'in' ? 'in' : 'out');
+      html += `<path d="M ${p1.x} ${p1.y} L ${wiring.x} ${wiring.y}" fill="none" stroke="#93c5fd" stroke-width="2" stroke-dasharray="6 4"/>`;
+    }
+  }
+  wires.innerHTML = html;
+  wires.style.pointerEvents = state.edges.length ? 'auto' : 'none';
+  wires.querySelectorAll('.wire-hit').forEach(p => {
+    p.addEventListener('pointerdown', e => {
+      e.stopPropagation();
+      selectedEdge = p.dataset.edge;
+      selected = null; selectedIds = new Set();
+      drawWires(); syncSelection();
+    });
+  });
+}
+
+function syncSelection(){
+  if (selected) selectedIds.add(selected);
+  const roles = graphRoles();
+  if (roles.ident) state.identityId = roles.ident.id;
+  state.refId = roles.ref ? roles.ref.id : '';
+  for (const [id, el] of els){
+    el.classList.toggle('selected', selectedIds.has(id));
+    const o = obj(id);
+    if (o?.type==='gen'){
+      const hint = el.querySelector('.gen-hint');
+      if (hint){
+        const bits = [];
+        if (roles.gen && roles.gen.id===id){
+          bits.push((o.channel||'gpt')==='grok' ? 'Grok' : 'GPT');
+          bits.push(roles.ident ? '图一已接' : '未接图一');
+          bits.push(roles.ref ? '图二已接' : '无图二');
+          if ((o.channel||'gpt')==='grok' && roles.ref) bits.push('Grok 不能带图二');
+          bits.push(roles.texts.length ? '文本 '+roles.texts.length : '无文本节点');
+        }
+        hint.textContent = bits.join(' · ') || '接入图片 / 文本后点底部生成';
+      }
+    }
+    if (!o || o.type!=='image') continue;
+    const badge = el.querySelector('.badge');
+    if (!badge) continue;
+    if (roles.ident && id===roles.ident.id){ badge.hidden=false; badge.textContent='图一'; }
+    else if (roles.ref && id===roles.ref.id){ badge.hidden=false; badge.textContent='图二'; }
+    else badge.hidden = true;
+  }
+  const o = obj(selected);
+  inspector.classList.toggle('show', !!o && o.type==='image');
+  document.getElementById('inspImageBtns').style.display = o?.type==='image' ? 'flex' : 'none';
+  emptyHint.style.display = state.objects.length ? 'none' : 'block';
+  document.getElementById('nodeCount').textContent = '节点 ' + state.objects.filter(x=>x.type!=='rect').length;
+  document.getElementById('inspTitle').textContent = o ? (o.name || o.type) : '节点';
+}
+
+function syncAll(){
+  const ids = new Set(state.objects.map(o => o.id));
+  for (const [id, el] of els){
+    if (!ids.has(id)){ el.remove(); els.delete(id); }
+  }
+  for (const o of state.objects){
+    const el = ensureEl(o);
+    if (o.type==='text'){
+      const tb = el.querySelector('.tbody');
+      if (tb && document.activeElement !== el) tb.textContent = o.text || '';
+    }
+    if (o.type==='gen'){
+      const sels = el.querySelectorAll('select');
+      if (sels[0] && document.activeElement !== sels[0]) sels[0].value = o.channel || 'gpt';
+      if (sels[1] && document.activeElement !== sels[1]) sels[1].value = o.size || state.size || '1024x1536';
+      if (sels[2] && document.activeElement !== sels[2]) sels[2].value = o.pad || state.pad || 'pad';
+      const box = el.querySelector('input[type="checkbox"]');
+      if (box && document.activeElement !== box) box.checked = (o.input_fidelity || state.input_fidelity) === 'low';
+    }
+    if (o.type==='extract'){
+      const sel = el.querySelector('select');
+      const ta = el.querySelector('textarea');
+      if (sel && document.activeElement !== sel) sel.value = o.kind || 'all';
+      if (ta && document.activeElement !== ta) ta.value = o.text || '';
+    }
+    placeEl(o, el);
+  }
+  syncSelection();
+  drawWires();
+}
+
+function openPreview(o){
+  if (!o || o.type!=='image' || !o.path) return;
+  previewImg.src = imgUrl(o.path);
+  preview.classList.add('show');
+}
+function closePreview(){
+  preview.classList.remove('show');
+  previewImg.removeAttribute('src');
+}
+preview.addEventListener('click', closePreview);
+
+function onObjDown(e){
+  if (space || e.button===1) return;
+  if (e.target.closest('.handle') || e.target.closest('.port-strip')) return;
+  if (e.target.closest('select') || e.target.closest('input') || e.target.closest('textarea')) return;
+  e.stopPropagation();
+  const id = e.currentTarget.dataset.id;
+  const o = obj(id);
+  if (o?.type==='text' && e.currentTarget.contentEditable==='true') return;
+  if (e.shiftKey){
+    if (selectedIds.has(id)) selectedIds.delete(id); else selectedIds.add(id);
+    selected = id;
+  } else {
+    if (!selectedIds.has(id)) selectedIds = new Set([id]);
+    selected = id;
+  }
+  const wantDrag = !e.target.closest('.handle') && (o?.type==='image' || e.target.closest('[data-drag="1"]') || e.target.closest('.cap'));
+  if (o && o.type!=='rect' && wantDrag){
+    const w = screenToWorld(e.clientX, e.clientY);
+    const ids = selectedIds.size ? [...selectedIds] : [id];
+    dragging = {
+      ids,
+      origin: Object.fromEntries(ids.map(nid => { const n = obj(nid); return [nid, n ? {x:n.x,y:n.y} : {x:0,y:0}]; })),
+      x: w.x, y: w.y
+    };
+    e.currentTarget.classList.add('dragging');
+  }
+  if (o?.type==='gen') state.genId = o.id;
+  syncSelection();
+}
+
+world.addEventListener('pointerdown', e => {
+  if (!e.target.closest('.ctx')) hideCtx();
+  if (e.button===1 || space){
+    panning = { x: e.clientX - state.cam.x, y: e.clientY - state.cam.y };
+    world.classList.add('panning'); e.preventDefault(); return;
+  }
+  if (e.button!==0) return;
+  if (placingText){
+    const w = screenToWorld(e.clientX, e.clientY);
+    addTextAt(w.x, w.y);
+    placingText = false;
+    document.getElementById('toolText').classList.remove('active');
+    return;
+  }
+  if (e.target===world || e.target===layer || e.target===wires){
+    if (!e.shiftKey){ selected = null; selectedIds = new Set(); selectedEdge = null; }
+    if (!wiring && !e.shiftKey){
+      panning = { x: e.clientX - state.cam.x, y: e.clientY - state.cam.y };
+      world.classList.add('panning');
+    }
+    if (e.shiftKey){
+      const w = screenToWorld(e.clientX, e.clientY);
+      marquee = { x0:w.x, y0:w.y, el: document.createElement('div') };
+      marquee.el.className = 'marquee';
+      layer.appendChild(marquee.el);
+    }
+    syncSelection();
+  }
+});
+window.addEventListener('pointermove', e => {
+  if (panning){
+    state.cam.x = e.clientX - panning.x; state.cam.y = e.clientY - panning.y; applyCam(); return;
+  }
+  if (wiring){
+    const w = screenToWorld(e.clientX, e.clientY);
+    wiring.x = w.x; wiring.y = w.y;
+    const snap = nearestInPort(w.x, w.y, wiring.from);
+    highlightPort(snap ? snap.id : null);
+    if (snap){ const p = portPos(snap,'in'); wiring.x = p.x; wiring.y = p.y; }
+    drawWires(); return;
+  }
+  if (resizing){
+    const o = obj(resizing.id); if (!o) return;
+    const w = screenToWorld(e.clientX, e.clientY);
+    if (resizing.free){
+      const dx = w.x - resizing.start.x, dy = w.y - resizing.start.y;
+      const minW = o.type==='extract' ? 240 : 220;
+      const minH = o.type==='extract' ? 140 : 160;
+      if (resizing.kind !== 's') o.w = Math.max(minW, resizing.w + dx);
+      if (resizing.kind !== 'e') o.h = Math.max(minH, resizing.h + dy);
+    } else {
+      const nw = Math.max(80, resizing.w + (w.x - resizing.start.x));
+      o.w = nw; o.h = nw * (resizing.h / resizing.w);
+    }
+    placeEl(o, els.get(o.id)); drawWires(); return;
+  }
+  if (rectDraft){
+    const w = screenToWorld(e.clientX, e.clientY);
+    const p = obj(rectDraft.parent); if (!p) return;
+    const x0 = Math.min(rectDraft.x0, w.x), y0 = Math.min(rectDraft.y0, w.y);
+    const x1 = Math.max(rectDraft.x0, w.x), y1 = Math.max(rectDraft.y0, w.y);
+    rectDraft.obj.nx = (x0-p.x)/p.w; rectDraft.obj.ny = (y0-p.y)/p.h;
+    rectDraft.obj.nw = Math.max(0.02,(x1-x0)/p.w); rectDraft.obj.nh = Math.max(0.02,(y1-y0)/p.h);
+    placeEl(rectDraft.obj, ensureEl(rectDraft.obj)); return;
+  }
+  if (marquee){
+    const w = screenToWorld(e.clientX, e.clientY);
+    const x = Math.min(marquee.x0, w.x), y = Math.min(marquee.y0, w.y);
+    const ww = Math.abs(w.x - marquee.x0), hh = Math.abs(w.y - marquee.y0);
+    marquee.el.style.left = x+'px'; marquee.el.style.top = y+'px';
+    marquee.el.style.width = ww+'px'; marquee.el.style.height = hh+'px';
+    return;
+  }
+  if (dragging){
+    const w = screenToWorld(e.clientX, e.clientY);
+    const dx = w.x - dragging.x, dy = w.y - dragging.y;
+    for (const nid of dragging.ids){
+      const o = obj(nid); if (!o || o.type==='rect') continue;
+      const orig = dragging.origin[nid]; if (!orig) continue;
+      o.x = orig.x + dx; o.y = orig.y + dy;
+      placeEl(o, els.get(o.id));
+      for (const r of state.objects.filter(x => x.type==='rect' && x.parent===o.id)) placeEl(r, ensureEl(r));
+    }
+    drawWires();
+  }
+});
+window.addEventListener('pointerup', e => {
+  if (wiring){
+    const w = screenToWorld(e.clientX, e.clientY);
+    const snap = nearestInPort(w.x, w.y, wiring.from);
+    const t = e.target.closest?.('.port-strip') || e.target.closest?.('.obj');
+    const nid = snap?.id || (t && t.closest?.('.obj')?.dataset.id) || t?.dataset?.id;
+    const pending = wiring;
+    wiring = null; highlightPort(null); world.classList.remove('wiring'); drawWires();
+    if (nid && nid!==pending.from){
+      const from = pending.fromSide==='in' ? nid : pending.from;
+      const to = pending.fromSide==='in' ? pending.from : nid;
+      addEdge(from, to);
+    } else if (!nid && !e.target.closest?.('.obj') && !e.target.closest?.('.ctx')){
+      pendingWire = pending;
+      showCtx(e.clientX, e.clientY, w, '从此连接新建');
+    }
+  }
+  if (marquee){
+    const w = screenToWorld(e.clientX, e.clientY);
+    const x0 = Math.min(marquee.x0, w.x), y0 = Math.min(marquee.y0, w.y);
+    const x1 = Math.max(marquee.x0, w.x), y1 = Math.max(marquee.y0, w.y);
+    selectedIds = new Set();
+    for (const o of state.objects){
+      if (o.type==='rect') continue;
+      const b = nodeBox(o);
+      if (b.x < x1 && b.x + b.w > x0 && b.y < y1 && b.y + b.h > y0) selectedIds.add(o.id);
+    }
+    selected = [...selectedIds][0] || null;
+    marquee.el.remove(); marquee = null; syncSelection();
+  }
+  if (dragging || resizing || rectDraft) scheduleSave();
+  if (dragging){ for (const nid of dragging.ids){ const el = els.get(nid); if (el) el.classList.remove('dragging'); } }
+  panning = false; dragging = null; resizing = null; rectDraft = null;
+  world.classList.remove('panning');
+});
+world.addEventListener('wheel', e => {
+  if (e.target.closest('textarea, select, input, .dock, .obj.gen, .obj.extract')) return;
+  e.preventDefault();
+  const r = world.getBoundingClientRect();
+  const mx = e.clientX - r.left, my = e.clientY - r.top;
+  const old = state.cam.z;
+  const next = Math.min(3, Math.max(0.15, old * (e.deltaY<0 ? 1.08 : 0.92)));
+  state.cam.z = next;
+  state.cam.x = mx - ((mx - state.cam.x)/old)*next;
+  state.cam.y = my - ((my - state.cam.y)/old)*next;
+  applyCam();
+}, {passive:false});
+world.addEventListener('dblclick', e => {
+  if (e.target.closest('.obj')) return;
+  e.preventDefault();
+  showCtx(e.clientX, e.clientY, screenToWorld(e.clientX, e.clientY));
+});
+ctxMenu.addEventListener('pointerdown', e => e.stopPropagation());
+ctxMenu.addEventListener('click', e => {
+  const act = e.target.dataset.act; if (!act) return;
+  const at = ctxAt || screenToWorld(world.clientWidth/2, world.clientHeight/2);
+  const wire = pendingWire;
+  hideCtx();
+  let created = null;
+  if (act==='text') created = addTextAt(at.x, at.y);
+  if (act==='extract') created = addExtractAt(at.x, at.y);
+  if (act==='gen') created = addGenAt(at.x, at.y);
+  if (act==='image' || act==='upload'){
+    ctxAt = at;
+    pendingWire = wire;
+    document.getElementById('file').click();
+    return;
+  }
+  if (created && wire){
+    const from = wire.fromSide==='in' ? created.id : wire.from;
+    const to = wire.fromSide==='in' ? wire.from : created.id;
+    addEdge(from, to);
+  }
+});
+window.addEventListener('keydown', e => {
+  if (e.code==='Space' && document.activeElement.tagName!=='TEXTAREA' && document.activeElement.contentEditable!=='true'){
+    space = true; world.classList.add('space'); e.preventDefault();
+  }
+  if (e.key==='Escape'){
+    if (preview.classList.contains('show')){ closePreview(); e.preventDefault(); return; }
+    selected=null; selectedIds=new Set(); selectedEdge=null; placingText=false; wiring=null; hideCtx(); document.getElementById('toolText').classList.remove('active'); syncSelection(); drawWires();
+  }
+  if ((e.key==='Delete'||e.key==='Backspace') && document.activeElement.tagName!=='TEXTAREA' && document.activeElement.contentEditable!=='true'){
+    if (selectedEdge && !selected){
+      state.edges = state.edges.filter(ed => ed.id!==selectedEdge);
+      selectedEdge = null; drawWires(); scheduleSave();
+    } else if (selected) delSelected();
+  }
+});
+window.addEventListener('keyup', e => { if (e.code==='Space'){ space=false; world.classList.remove('space'); }});
+world.addEventListener('dragover', e => { e.preventDefault(); world.classList.add('drop'); });
+world.addEventListener('dragleave', () => world.classList.remove('drop'));
+world.addEventListener('drop', async e => {
+  e.preventDefault(); world.classList.remove('drop');
+  await addFiles(e.dataTransfer.files, screenToWorld(e.clientX, e.clientY));
+});
+
+function addTextAt(x, y){
+  const o = { id: uid(), type:'text', x, y, text:'双击编辑文本' };
+  state.objects.push(o); selected = o.id; selectedIds = new Set([o.id]); syncAll(); scheduleSave();
+  return o;
+}
+function addExtractAt(x, y){
+  const o = { id: uid(), type:'extract', x, y, w:280, h:168, kind:'all', text:'' };
+  state.objects.push(o); selected = o.id; selectedIds = new Set([o.id]); syncAll(); scheduleSave();
+  return o;
+}
+function addGenAt(x, y){
+  const o = {
+    id: uid(), type:'gen', x, y, w:268, h:220,
+    channel: 'gpt',
+    size: document.getElementById('size').value || state.size || '1024x1536',
+    pad: document.getElementById('pad').value || state.pad || 'pad',
+    input_fidelity: document.getElementById('fidelity').checked ? 'low' : (state.input_fidelity || ''),
+    prompt: ''
+  };
+  state.objects.push(o); state.genId = o.id; selected = o.id; selectedIds = new Set([o.id]); syncAll(); scheduleSave();
+  return o;
+}
+async function addFiles(files, at){
+  let w = at || screenToWorld(world.clientWidth/2, world.clientHeight/2);
+  for (const f of files){
+    if (!f.type.startsWith('image/')) continue;
+    const data = await fileToB64(f);
+    const r = await post('/api/board/upload', { name: f.name, data_b64: data });
+    if (!r.ok){ setMsg(r.message||'上传失败','err'); continue; }
+    const scale = 280 / r.w;
+    const o = { id: uid(), type:'image', path:r.path, name:f.name, x:w.x, y:w.y, w:r.w*scale, h:r.h*scale };
+    state.objects.push(o);
+    if (!state.identityId) state.identityId = o.id;
+    selected = o.id; w.x += 36; w.y += 36;
+  }
+  syncAll(); scheduleSave();
+}
+function fileToB64(file){
+  return new Promise((res,rej) => { const rd = new FileReader(); rd.onload = () => res(rd.result); rd.onerror = rej; rd.readAsDataURL(file); });
+}
+function delSelected(){
+  const ids = selectedIds.size ? new Set(selectedIds) : (selected ? new Set([selected]) : new Set());
+  if (!ids.size) return;
+  state.objects = state.objects.filter(o => !ids.has(o.id) && !ids.has(o.parent));
+  state.edges = state.edges.filter(e => !ids.has(e.from) && !ids.has(e.to));
+  if (ids.has(state.identityId)) state.identityId='';
+  if (ids.has(state.refId)) state.refId='';
+  if (ids.has(state.genId)) state.genId='';
+  selected = null; selectedIds = new Set(); syncAll(); scheduleSave();
+}
+document.getElementById('toolText').onclick = () => {
+  placingText = !placingText;
+  document.getElementById('toolText').classList.toggle('active', placingText);
+  setMsg(placingText ? '点击画布放置文本节点' : '');
+};
+document.getElementById('toolImage').onclick = () => document.getElementById('file').click();
+document.getElementById('toolGen').onclick = () => {
+  const w = screenToWorld(world.clientWidth*0.62, world.clientHeight*0.38);
+  addGenAt(w.x, w.y);
+};
+document.getElementById('toolExtract').onclick = () => {
+  const w = screenToWorld(world.clientWidth*0.45, world.clientHeight*0.38);
+  addExtractAt(w.x, w.y);
+};
+document.getElementById('file').onchange = async e => {
+  const wire = pendingWire;
+  const before = new Set(state.objects.map(o => o.id));
+  await addFiles(e.target.files, ctxAt);
+  ctxAt = null; pendingWire = null; e.target.value='';
+  if (wire){
+    const created = state.objects.find(o => o.type==='image' && !before.has(o.id));
+    if (created){
+      const from = wire.fromSide==='in' ? created.id : wire.from;
+      const to = wire.fromSide==='in' ? wire.from : created.id;
+      addEdge(from, to);
+    }
+  }
+};
+document.getElementById('toolRect').onclick = () => {
+  const ident = graphRoles().ident || obj(state.identityId);
+  if (!ident){ setMsg('先把一张图连到生成节点（或设为图一），再圈选。','err'); return; }
+  setMsg('在图一上拖出要改的区域。','ok');
+  const onDown = e => {
+    const w = screenToWorld(e.clientX, e.clientY);
+    const rec = { id: uid(), type:'rect', parent: ident.id, nx:0, ny:0, nw:0.1, nh:0.1 };
+    state.objects = state.objects.filter(o => !(o.type==='rect' && o.parent===ident.id));
+    state.objects.push(rec);
+    rectDraft = { parent: ident.id, x0:w.x, y0:w.y, obj: rec };
+    world.removeEventListener('pointerdown', onDown, true);
+    syncAll();
+  };
+  world.addEventListener('pointerdown', onDown, true);
+};
+document.getElementById('toolDel').onclick = delSelected;
+document.getElementById('setIdent').onclick = () => {
+  if (!selected || obj(selected)?.type!=='image') return;
+  if (state.refId===selected) state.refId = state.identityId || '';
+  state.identityId = selected;
+  syncSelection(); scheduleSave();
+};
+document.getElementById('setRef').onclick = () => {
+  if (!selected || obj(selected)?.type!=='image') return;
+  if (state.identityId===selected) state.identityId = state.refId || '';
+  state.refId = selected;
+  syncSelection(); scheduleSave();
+};
+document.getElementById('toggleWires').onclick = () => {
+  showWires = !showWires;
+  document.getElementById('toggleWires').textContent = showWires ? '连线开' : '连线关';
+  drawWires();
+};
+document.getElementById('fit').onclick = () => { state.cam={x:80,y:80,z:1}; applyCam(); scheduleSave(); };
+document.getElementById('zoomIn').onclick = () => { state.cam.z = Math.min(3, state.cam.z*1.12); applyCam(); };
+document.getElementById('zoomOut').onclick = () => { state.cam.z = Math.max(0.15, state.cam.z/1.12); applyCam(); };
+document.getElementById('prompt').oninput = e => { state.prompt=e.target.value; scheduleSave(); };
+function writeGenField(key, value){
+  state[key] = value;
+  const g = obj(state.genId) || graphRoles().gen;
+  if (g) g[key] = value;
+  scheduleSave();
+  syncSelection();
+}
+document.getElementById('size').onchange = e => writeGenField('size', e.target.value);
+document.getElementById('pad').onchange = e => writeGenField('pad', e.target.value);
+document.getElementById('fidelity').onchange = e => writeGenField('input_fidelity', e.target.checked ? 'low':'');
+
+async function post(url, body){
+  const r = await fetch(url, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body||{}) });
+  return r.json();
+}
+function snapshot(){
+  return {
+    cam: state.cam, objects: state.objects, edges: state.edges,
+    prompt: document.getElementById('prompt').value,
+    size: document.getElementById('size').value, pad: document.getElementById('pad').value,
+    input_fidelity: document.getElementById('fidelity').checked ? 'low':'',
+    identityId: state.identityId, refId: state.refId, genId: state.genId,
+  };
+}
+async function save(){
+  Object.assign(state, snapshot());
+  await post('/api/board/save', snapshot());
+  document.getElementById('status').textContent = '已保存';
+}
+async function load(){
+  const r = await fetch('/api/board');
+  const d = await r.json();
+  state = Object.assign(state, d);
+  if (!Array.isArray(state.edges)) state.edges = [];
+  document.getElementById('prompt').value = state.prompt||'';
+  document.getElementById('size').value = state.size||'1024x1536';
+  document.getElementById('pad').value = state.pad||'pad';
+  document.getElementById('fidelity').checked = state.input_fidelity==='low';
+  applyCam(); syncAll();
+}
+async function generate(dry){
+  await save();
+  setMsg(dry ? '正在做预算（不发送）…' : '正在生成（一次 POST）…');
+  const r = await post('/api/board/generate', { dry_run: !!dry });
+  if (!r.ok){ setMsg(r.message||'失败','err'); return; }
+  if (dry){ setMsg((r.message||'预算完成') + (r.fields? '\n字段：'+r.fields:''),'ok'); return; }
+  if (r.path){
+    const roles = graphRoles();
+    const g = roles.gen || obj(state.genId);
+    const ident = roles.ident || obj(state.identityId);
+    const x = g ? g.x + (g.w||260) + 48 : (ident ? ident.x + (ident.w||280) + 48 : 80);
+    const y = g ? g.y : (ident ? ident.y : 80);
+    const scale = 280 / r.w;
+    const o = { id: uid(), type:'image', path:r.path, name:(r.path||'').split(/[/\\]/).pop(), x, y, w:r.w*scale, h:r.h*scale };
+    state.objects.push(o);
+    if (g) addEdge(g.id, o.id);
+    selected = o.id; selectedIds = new Set([o.id]);
+    syncAll(); await save();
+  }
+  setMsg((r.message||'已生成') + (r.path? '\n'+r.path:''),'ok');
+}
+load();
+</script>
+</body>
+</html>
