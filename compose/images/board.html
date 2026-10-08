@@ -225,6 +225,8 @@ a { color: inherit; text-decoration: none; }
     <button class="ghost" id="toggleWires">连线开</button>
     <span class="ghost" id="nodeCount">节点 0</span>
     <span class="ghost" id="status">已保存</span>
+    <span class="ghost" id="updateLabel">版本</span>
+    <button class="ghost" id="updateBtn" type="button">检查更新</button>
     <div class="zoom">
       <button id="zoomOut" title="缩小">−</button>
       <span id="zoomLabel">100%</span>
@@ -1126,6 +1128,41 @@ async function generate(dry){
   }
   setMsg((r.message||'已生成') + (r.path? '\n'+r.path:''),'ok');
 }
+async function checkUpdate(){
+  const label = document.getElementById('updateLabel');
+  const btn = document.getElementById('updateBtn');
+  label.textContent = '检查中…';
+  try {
+    const r = await fetch('/api/update');
+    const d = await r.json();
+    label.textContent = d.behind ? ('有更新 ' + (d.behind||'')) : (d.ok ? '已最新' : '检查失败');
+    label.title = d.message || '';
+    btn.dataset.can = d.can_update ? '1' : '0';
+    btn.textContent = d.can_update ? '更新' : '检查更新';
+    setMsg(d.message || '', d.ok ? (d.behind ? '' : 'ok') : 'err');
+    return d;
+  } catch (e) {
+    label.textContent = '检查失败';
+    setMsg(String(e), 'err');
+    return null;
+  }
+}
+document.getElementById('updateBtn').onclick = async () => {
+  const btn = document.getElementById('updateBtn');
+  if (btn.dataset.can !== '1'){
+    await checkUpdate();
+    return;
+  }
+  if (!confirm('从 GitHub origin/master 快进更新本地代码？不会覆盖未提交改动，也不会推送。更新后请刷新页面。')) return;
+  setMsg('正在更新…');
+  const r = await post('/api/update', {});
+  setMsg(r.message||'', r.ok ? 'ok' : 'err');
+  document.getElementById('updateLabel').textContent = r.ok ? (r.local || '已更新') : '更新失败';
+  btn.dataset.can = '0';
+  btn.textContent = '检查更新';
+  if (r.ok && r.local) location.reload();
+};
+checkUpdate();
 load();
 </script>
 </body>

@@ -68,6 +68,8 @@ python zcode-image-edit/bin/zimage.py edit --image 原图.png --rect 300,200,700
 
 技能与斜杠命令（可选）：`python zcode-image-edit/install.py` 装到 `~/.agents/`。
 
+画布顶栏「检查更新」会对照 GitHub `origin/master`。有新提交且本地工作区干净时，可确认后快进合并；有未提交改动则拒绝覆盖。更新后刷新页面；若服务仍缓存旧模块，重启 `zimage.py board`。
+
 ## 安全模型
 
 - **凭据**：只从 `RELAY_API_KEY` / `RELAY_BASE_URL` / `RELAY_MODEL` 环境变量读取；缺失时在发送前明确报错，绝不白跑压缩流程。

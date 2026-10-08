@@ -2577,6 +2577,9 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/api/board":
             import board_app
             return self._json(board_app.load_board())
+        elif path == "/api/update":
+            import board_app
+            return self._json(board_app.update_status())
         else:
             self._send(404, b"not found", "text/plain; charset=utf-8")
 
@@ -2596,6 +2599,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.api_board_generate()
         if path == "/api/board/extract":
             return self.api_board_extract()
+        if path == "/api/update":
+            return self.api_update()
         self._json({"ok": False, "message": "unknown endpoint"}, 404)
 
     def _board_page(self):
@@ -2649,6 +2654,10 @@ class Handler(BaseHTTPRequestHandler):
         board = board_app.load_board()
         node_id = str(j.get("node_id") or "")
         return self._json(board_app.run_extract(board, node_id))
+
+    def api_update(self):
+        import board_app
+        return self._json(board_app.apply_update())
 
     # ---- api: ping ----
     def api_ping(self):

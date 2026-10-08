@@ -582,3 +582,97 @@ def run_extract(board: dict, node_id: str) -> dict:
         "node_id": node_id,
         "log": log[-1500:],
     }
+
+
+UPDATE_REMOTE = "origin"
+UPDATE_BRANCH = "master"
+
+
+def _git(*args: str, timeout: int = 40) -> tuple[int, str]:
+    proc = subprocess.run(
+        ["git", *args],
+        cwd=str(ROOT),
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=timeout,
+    )
+    out = ((proc.stdout or "") + "\n" + (proc.stderr or "")).strip()
+    return proc.returncode, out
+
+
+def update_status() -> dict:
+    code, inside = _git("rev-parse", "--is-inside-work-tree")
+    if code != 0 or inside.splitlines()[-1:] != ["true"]:
+        return {"ok": False, "message": "当前目录不是 git 仓库，无法在网页更新。"}
+    _, branch = _git("rev-parse", "--abbrev-ref", "HEAD")
+    branch = (branch.splitlines() or ["?"])[-1]
+    _, local = _git("rev-parse", "HEAD")
+    local = (local.splitlines() or [""])[-1]
+    _, dirty = _git("status", "--porcelain")
+    dirty_n = len([ln for ln in dirty.splitlines() if ln.strip()])
+    fetch_code, fetch_out = _git("fetch", UPDATE_REMOTE, UPDATE_BRANCH)
+    remote_ref = f"{UPDATE_REMOTE}/{UPDATE_BRANCH}"
+    _, remote = _git("rev-parse", remote_ref)
+    remote = (remote.splitlines() or [""])[-1] if fetch_code == 0 else ""
+    ahead = behind = 0
+    if local and remote:
+        _, counts = _git("rev-list", "--left-right", "--count", f"{local}...{remote}")
+        parts = (counts.splitlines() or ["0\t0"])[-1].split()
+        if len(parts) >= 2:
+            ahead, behind = int(parts[0]), int(parts[1])
+    _, subject = _git("log", "-1", "--format=%h %s", remote_ref if remote else "HEAD")
+    latest = (subject.splitlines() or [""])[-1]
+    if fetch_code != 0:
+        return {
+            "ok": False,
+            "message": "拉取远程失败（网络或未配置 origin）。\n" + fetch_out[-800:],
+            "branch": branch,
+            "local": local[:12],
+            "dirty": dirty_n,
+        }
+    if behind > 0:
+        msg = f"有新版本：落后 origin/{UPDATE_BRANCH} {behind} 个提交。最新：{latest}"
+        if dirty_n:
+            msg += f"\n本地有 {dirty_n} 处未提交改动，网页更新会拒绝覆盖。"
+    elif dirty_n:
+        msg = f"已是最新提交，但本地有 {dirty_n} 处未提交改动。"
+    else:
+        msg = f"已是最新。当前 {local[:12]}（{branch}）"
+    return {
+        "ok": True,
+        "message": msg,
+        "branch": branch,
+        "local": local[:12],
+        "remote": remote[:12],
+        "ahead": ahead,
+        "behind": behind,
+        "dirty": dirty_n,
+        "latest": latest,
+        "can_update": behind > 0 and dirty_n == 0 and ahead == 0,
+    }
+
+
+def apply_update() -> dict:
+    st = update_status()
+    if not st.get("ok"):
+        return st
+    if st.get("dirty"):
+        return {"ok": False, "message": "本地有未提交改动，拒绝覆盖。请先自行提交或另开干净目录。", **st}
+    if st.get("ahead"):
+        return {"ok": False, "message": "本地比远程超前，拒绝强制覆盖。", **st}
+    if not st.get("behind"):
+        return {"ok": True, "message": "没有可更新的提交。", **st}
+    code, out = _git("merge", "--ff-only", f"{UPDATE_REMOTE}/{UPDATE_BRANCH}")
+    if code != 0:
+        return {"ok": False, "message": "快进合并失败。\n" + out[-1200:], **st}
+    _, local = _git("rev-parse", "HEAD")
+    return {
+        "ok": True,
+        "message": "已更新到 origin/master（快进）。刷新页面加载新画布。服务进程若仍缓存旧模块，请重启 zimage.py board。\n" + out[-800:],
+        "local": (local.splitlines() or [""])[-1][:12],
+        "behind": 0,
+        "dirty": 0,
+        "can_update": False,
+    }
