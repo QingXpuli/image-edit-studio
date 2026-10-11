@@ -20,8 +20,73 @@ button { cursor: pointer; }
   background: var(--panel); border-bottom: 1px solid var(--line); z-index: 8;
 }
 .top .title { font-weight: 650; margin-right: auto; }
+.boardSel { border: 1px solid var(--line); background: var(--panel); color: var(--ink); border-radius: 8px; padding: 4px 6px; max-width: 180px; font-weight: 650; }
+#boardDel { margin-right: auto; }
+.assets {
+  position: absolute; right: 0; top: 0; bottom: 0; width: 300px; z-index: 7;
+  background: var(--panel); border-left: 1px solid var(--line);
+  box-shadow: -12px 0 40px #00000018; display: none; flex-direction: column;
+}
+.assets.show { display: flex; }
+.assets .hd { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; border-bottom: 1px solid var(--line); font-weight: 650; }
+.assets .grid { overflow-y: auto; flex: 1; padding: 10px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; align-content: start; }
+.assets .grid img { width: 100%; height: 96px; object-fit: cover; border-radius: 8px; border: 1px solid var(--line); cursor: grab; background: #f9fafb; }
+.assets .grid img:hover { border-color: var(--blue); }
+.assets .empty { color: var(--muted); font-size: 12px; padding: 14px; }
+.style-item { border: 1px solid var(--line); border-radius: 10px; padding: 8px; background: #fff; }
+.style-item img { width: 100%; height: 90px; object-fit: cover; border-radius: 6px; }
+.si-name { font-weight: 650; margin: 6px 0 2px; font-size: 12px; word-break: break-all; }
+.si-meta { color: var(--muted); font-size: 11px; margin-bottom: 6px; }
+.si-btns { display: flex; gap: 4px; flex-wrap: wrap; }
+.si-btns .btn { padding: 3px 8px; font-size: 11px; }
+body.dark .style-item { background: #1b2029; }
 .ghost { background: none; border: 0; padding: 6px 10px; color: var(--muted); border-radius: 8px; }
 .ghost:hover { background: #f3f4f6; color: var(--ink); }
+.ghost:disabled { opacity: .35; cursor: default; }
+.ghost:disabled:hover { background: none; color: var(--muted); }
+#minimap {
+  position: absolute; right: 14px; bottom: 14px; z-index: 6;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+  box-shadow: 0 10px 30px #00000012; cursor: crosshair; display: none;
+}
+#minimap.show { display: block; }
+body.dark {
+  --bg:#0f1115; --ink:#e6e8ee; --muted:#9aa3b2; --line:#272c36; --panel:#161a21;
+}
+body.dark #world {
+  background:
+    linear-gradient(#1b2029 1px, transparent 1px) 0 0 / 32px 32px,
+    linear-gradient(90deg, #1b2029 1px, transparent 1px) 0 0 / 32px 32px,
+    #12151b;
+}
+body.dark .obj { background:#1b2029; border-color:#272c36; box-shadow:0 8px 24px #00000040; }
+body.dark .obj .cap { border-bottom-color:#1f242e; }
+body.dark .obj .cap::before { background: radial-gradient(#4a5462 1.15px, transparent 1.3px) 0 0 / 4px 4px, radial-gradient(#4a5462 1.15px, transparent 1.3px) 2px 2px / 4px 4px; }
+body.dark .obj.image img { background:#12151b; }
+body.dark .obj.extract { background: linear-gradient(#1b2029, #1a2118); }
+body.dark .obj.gen { background: linear-gradient(#1b2029, #171c26); }
+body.dark .gen-form select, body.dark .gen-form textarea { background:#12151b; color:var(--ink); border-color:var(--line); }
+body.dark .ctx, body.dark .dock, body.dark .inspector, body.dark .rail, body.dark #minimap { background:var(--panel); }
+body.dark .ctx button:hover, body.dark .ghost:hover { background:#1f242e; color:var(--ink); }
+body.dark .btn { background:#1b2029; color:var(--ink); border-color:var(--line); }
+body.dark .btn.primary { background:var(--ink); color:#12151b; border-color:var(--ink); }
+body.dark .port { background:#1b2029; box-shadow:0 0 0 3px #161a21cc; }
+body.dark .handle.br { background:
+  linear-gradient(135deg, transparent 45%, #7c8798 45% 55%, transparent 55%) 2px 2px / 6px 6px,
+  linear-gradient(135deg, transparent 45%, #7c8798 45% 55%, transparent 55%) 6px 6px / 6px 6px,
+  #1b2029;
+  box-shadow:0 0 0 2px #12151bcc; }
+.keys {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%,-50%); z-index: 30;
+  min-width: 340px; max-width: 420px; padding: 14px 18px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+  box-shadow: 0 24px 80px #00000040; display: none;
+}
+.keys.show { display: block; }
+.keys h2 { margin: 0 0 10px; font-size: 13px; display: flex; justify-content: space-between; align-items: center; }
+.keys table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.keys td { padding: 4px 0; color: var(--muted); }
+.keys td:first-child { color: var(--ink); font-weight: 600; padding-right: 18px; white-space: nowrap; }
 .stage { flex: 1; position: relative; min-height: 0; }
 #world {
   width: 100%; height: 100%; overflow: hidden; cursor: default;
@@ -42,6 +107,13 @@ button { cursor: pointer; }
   cursor: default; background: #fff; box-shadow: 0 8px 24px #0000000d;
   display: flex; flex-direction: column;
 }
+.obj { z-index: 1; }
+.obj.group {
+  z-index: 0; background: #8b5cf614; border: 2px dashed #8b5cf6; border-radius: 16px;
+  box-shadow: none;
+}
+.obj.group .cap { color: #7c3aed; border-bottom-color: #8b5cf633; }
+body.dark .obj.group { background: #8b5cf61f; }
 .obj:hover { border-color: #93c5fd; }
 .obj.selected { border-color: var(--blue); box-shadow: 0 0 0 3px #2563eb22; }
 .obj.dragging { z-index: 4; }
@@ -221,8 +293,16 @@ a { color: inherit; text-decoration: none; }
   <div class="top">
     <a class="ghost" href="/">遮罩</a>
     <a class="ghost" href="/gallery">画廊</a>
-    <div class="title">未命名画布</div>
+    <select id="boardSel" class="boardSel" title="切换画布"></select>
+    <button class="ghost" id="boardNew" title="新建画布">＋</button>
+    <button class="ghost" id="boardRen" title="重命名当前画布">改名</button>
+    <button class="ghost" id="boardDel" title="删除当前画布">删</button>
+    <button class="ghost" id="undoBtn" title="撤销 (Ctrl+Z)" disabled>↶</button>
+    <button class="ghost" id="redoBtn" title="重做 (Ctrl+Shift+Z)" disabled>↷</button>
     <button class="ghost" id="toggleWires">连线开</button>
+    <button class="ghost" id="themeBtn" title="切换深浅主题">🌙</button>
+    <button class="ghost" id="assetsBtn" title="产图资产面板">资产</button>
+    <button class="ghost" id="keysBtn" title="快捷键 (?)">?键</button>
     <span class="ghost" id="nodeCount">节点 0</span>
     <span class="ghost" id="status">已保存</span>
     <span class="ghost" id="updateLabel">版本</span>
@@ -246,6 +326,9 @@ a { color: inherit; text-decoration: none; }
       <button data-act="upload">图片</button>
       <button data-act="extract">提取</button>
       <button data-act="gen">生成</button>
+      <hr>
+      <button data-act="presetStyle">预设:画风迁移(提取+生成)</button>
+      <button data-act="presetPose">预设:姿态迁移(提取+生成)</button>
     </div>
     </div>
     <div class="rail">
@@ -253,7 +336,13 @@ a { color: inherit; text-decoration: none; }
       <button id="toolImage" title="图片"><span class="ico">▣</span>图片</button>
       <button id="toolGen" title="生成"><span class="ico">▶</span>生成</button>
       <button id="toolExtract" title="提取姿态/风格"><span class="ico">◎</span>提取</button>
+      <button id="toolPresetStyle" title="预设:提取画风并接好生成节点"><span class="ico">风</span>画风</button>
+      <button id="toolPresetPose" title="预设:模仿人物姿态动作并接好生成节点"><span class="ico">姿</span>姿态</button>
       <button id="toolRect" title="圈选"><span class="ico">▭</span>圈选</button>
+      <button id="toolDistill" title="画风蒸馏:对选中图片产出线稿/笔触样例/色调指纹/画风卡"><span class="ico">蒸</span>蒸馏</button>
+      <button id="toolTone" title="对色:把选中成图的色调确定性对齐到蒸馏包指纹"><span class="ico">色</span>对色</button>
+      <button id="toolPose" title="姿态估计:本地 OpenPose,仅 pose_estimated"><span class="ico">骨</span>姿态估计</button>
+      <button id="toolStyles" title="画风库:管理蒸馏包并复用到生成节点"><span class="ico">库</span>画风库</button>
       <button id="toolDel" title="删除"><span class="ico">✕</span>删除</button>
     </div>
     <div class="inspector" id="inspector">
@@ -261,12 +350,26 @@ a { color: inherit; text-decoration: none; }
       <div class="row" id="inspImageBtns">
         <button class="btn" id="setIdent">设为图一</button>
         <button class="btn" id="setRef">设为图二</button>
+        <button class="btn" id="repairRoles">修复角色引用</button>
+        <button class="btn" id="approveDistill">审核蒸馏包</button>
+        <button class="btn" id="reviewJob">验收结果</button>
       </div>
       <p class="msg" style="margin:8px 0 0">接线后仍可改。先点的图当图一，或点按钮指定。</p>
     </div>
     <div class="dock">
       <textarea id="prompt" placeholder="补充提示词（可与生成节点、文本节点叠加）"></textarea>
       <div class="msg" id="msg">生成在节点上点。点图可设图一 / 图二；接线后仍可改。</div>
+    </div>
+    <canvas id="minimap" width="220" height="140"></canvas>
+    <div class="assets" id="assetsPanel">
+      <div class="hd"><span>产图资产</span><button class="ghost" id="assetsClose">关闭</button></div>
+      <div class="grid" id="assetsGrid"></div>
+      <div class="empty" id="assetsEmpty" hidden>产图目录暂无图片</div>
+    </div>
+    <div class="assets" id="stylesPanel">
+      <div class="hd"><span>画风库(蒸馏包)</span><button class="ghost" id="stylesClose">关闭</button></div>
+      <div class="grid" id="stylesGrid"></div>
+      <div class="empty" id="stylesEmpty" hidden>还没有蒸馏包:选中画风源图 → 点左栏「蒸馏」</div>
     </div>
     <select id="size" hidden>
       <option>1024x1536</option>
@@ -281,6 +384,23 @@ a { color: inherit; text-decoration: none; }
   </div>
 </div>
 <div class="preview" id="preview"><img id="previewImg" alt="" /></div>
+<div class="keys" id="keysPanel">
+  <h2>快捷键 <button class="ghost" id="keysClose">关闭</button></h2>
+  <table>
+    <tr><td>空格 + 拖 / 中键拖</td><td>平移画布</td></tr>
+    <tr><td>滚轮</td><td>以指针为中心缩放</td></tr>
+    <tr><td>双击空白</td><td>新建节点</td></tr>
+    <tr><td>从端口拖到空白</td><td>连线并新建节点</td></tr>
+    <tr><td>Shift + 拖</td><td>框选节点</td></tr>
+    <tr><td>Shift + 点击</td><td>加选 / 减选</td></tr>
+    <tr><td>Ctrl+C / Ctrl+V</td><td>复制 / 粘贴选中节点(带内部连线)</td></tr>
+    <tr><td>Ctrl+G / Ctrl+Shift+G</td><td>成组 / 拆组(选中组后删组不删成员)</td></tr>
+    <tr><td>Ctrl+Z / Ctrl+Shift+Z</td><td>撤销 / 重做</td></tr>
+    <tr><td>Delete</td><td>删除选中(或选中连线)</td></tr>
+    <tr><td>Esc</td><td>取消选择 / 关闭弹层</td></tr>
+    <tr><td>?</td><td>本面板</td></tr>
+  </table>
+</div>
 <input id="file" type="file" accept="image/*" multiple />
 <script>
 const world = document.getElementById('world');
@@ -289,7 +409,9 @@ const wires = document.getElementById('wires');
 const msg = document.getElementById('msg');
 const emptyHint = document.getElementById('emptyHint');
 const inspector = document.getElementById('inspector');
-let state = { cam:{x:80,y:80,z:1}, objects:[], edges:[], prompt:'', size:'1024x1536', pad:'pad', input_fidelity:'', identityId:'', refId:'', genId:'' };
+let state = { cam:{x:80,y:80,z:1}, objects:[], edges:[], prompt:'', size:'1024x1536', pad:'pad', input_fidelity:'', identity_scope:'preserve', pose_scope:'preserve', style_scope:'preserve', color_scope:'preserve', identityId:'', refId:'', genId:'', _revision:'' };
+let boardId = localStorage.getItem('boardActive') || 'default';
+let saveInFlight = null;
 let selected = null, selectedIds = new Set(), space = false, panning = false, dragging = null, resizing = null, rectDraft = null, placingText = false;
 let wiring = null, pendingWire = null, selectedEdge = null, showWires = true, saveTimer = null, ctxAt = null, marquee = null;
 const els = new Map();
@@ -304,6 +426,7 @@ function applyCam(){
   layer.style.transform = `translate(${state.cam.x}px, ${state.cam.y}px) scale(${state.cam.z})`;
   document.getElementById('zoomLabel').textContent = Math.round(state.cam.z*100) + '%';
   drawWires();
+  drawMinimap();
 }
 function screenToWorld(sx, sy){
   const r = world.getBoundingClientRect();
@@ -319,6 +442,7 @@ function nodeBox(o){
   if (o.type==='image') return {x:o.x,y:o.y,w:o.w,h:o.h};
   if (o.type==='gen') return {x:o.x,y:o.y,w:o.w||268,h:o.h||188};
   if (o.type==='extract') return {x:o.x,y:o.y,w:o.w||280,h:o.h||168};
+  if (o.type==='group') return {x:o.x,y:o.y,w:o.w||300,h:o.h||200};
   const el = els.get(o.id);
   return {x:o.x,y:o.y,w: el? el.offsetWidth: 180, h: el? el.offsetHeight: 72};
 }
@@ -344,6 +468,10 @@ function placeEl(o, el){
     el.style.width = o.w+'px';
     el.style.height = o.h+'px';
   }
+  if (o.type==='group'){
+    el.style.width = (o.w||300)+'px';
+    el.style.height = (o.h||200)+'px';
+  }
 }
 
 function addResizeHandle(el, o, kind){
@@ -358,7 +486,8 @@ function addResizeHandle(el, o, kind){
       start: screenToWorld(e.clientX, e.clientY),
       w: o.w || (kind==='br' && o.type!=='image' ? 268 : o.w),
       h: o.h || (o.type==='gen' ? 188 : o.h),
-      free: o.type==='gen' || o.type==='extract'
+      free: o.type==='gen' || o.type==='extract',
+      pre: undoData(), pushed: false
     };
     syncSelection();
   });
@@ -366,7 +495,7 @@ function addResizeHandle(el, o, kind){
 }
 
 function addPorts(slot, o){
-  if (o.type==='rect') return;
+  if (o.type==='rect' || o.type==='group') return;
   for (const side of ['in','out']){
     const strip = document.createElement('div');
     strip.className = 'port-strip ' + side;
@@ -388,7 +517,7 @@ function addPorts(slot, o){
 function nearestInPort(wx, wy, exceptId){
   let best = null, bestD = 88;
   for (const o of state.objects){
-    if (o.type==='rect' || o.id===exceptId) continue;
+    if (o.type==='rect' || o.type==='group' || o.id===exceptId) continue;
     const b = nodeBox(o);
     const p = portPos(o, 'in');
     const onNode = wx >= b.x - 48 && wx <= b.x + b.w + 24 && wy >= b.y - 12 && wy <= b.y + b.h + 12;
@@ -464,8 +593,18 @@ function ensureEl(o){
     el.addEventListener('blur', () => {
       el.contentEditable = 'false';
       const tb = el.querySelector('.tbody');
+      if (tb && tb.innerText !== o.text) pushUndo();
       if (tb) o.text = tb.innerText;
       scheduleSave();
+    });
+  } else if (o.type === 'group'){
+    const gcap = el.querySelector('.cap');
+    if (gcap) gcap.textContent = '组(双击拆组)';
+    addResizeHandle(el, o, 'br');
+    el.addEventListener('dblclick', e => {
+      if (e.target.closest('.handle')) return;
+      e.stopPropagation();
+      ungroupSelected();
     });
   } else if (o.type === 'gen'){
     fillGenForm(o, slot);
@@ -494,7 +633,7 @@ function fillGenForm(o, slot){
   prompt.value = o.prompt || '';
   prompt.addEventListener('pointerdown', e => e.stopPropagation());
   prompt.addEventListener('wheel', e => e.stopPropagation());
-  prompt.addEventListener('input', () => { o.prompt = prompt.value; scheduleSave(); });
+  prompt.addEventListener('input', () => { pushUndoThrottled('genp:'+o.id); o.prompt = prompt.value; scheduleSave(); });
   const size = document.createElement('select');
   for (const s of ['1024x1536','1536x1024','1024x1024']){
     const opt = document.createElement('option'); opt.value = s; opt.textContent = s;
@@ -502,17 +641,18 @@ function fillGenForm(o, slot){
     size.appendChild(opt);
   }
   size.addEventListener('pointerdown', e => e.stopPropagation());
-  size.addEventListener('change', () => { o.size = size.value; state.size = size.value; document.getElementById('size').value = size.value; scheduleSave(); });
+  size.addEventListener('change', () => { pushUndo(); o.size = size.value; state.size = size.value; document.getElementById('size').value = size.value; scheduleSave(); });
   const pad = document.createElement('select');
   pad.innerHTML = '<option value="pad">补边</option><option value="crop">裁切</option>';
   pad.value = o.pad || state.pad || 'pad';
   pad.addEventListener('pointerdown', e => e.stopPropagation());
-  pad.addEventListener('change', () => { o.pad = pad.value; state.pad = pad.value; document.getElementById('pad').value = pad.value; scheduleSave(); });
+  pad.addEventListener('change', () => { pushUndo(); o.pad = pad.value; state.pad = pad.value; document.getElementById('pad').value = pad.value; scheduleSave(); });
   const channel = document.createElement('select');
   channel.innerHTML = '<option value="gpt">GPT</option><option value="grok">Grok</option>';
   channel.value = o.channel || 'gpt';
   channel.addEventListener('pointerdown', e => e.stopPropagation());
   channel.addEventListener('change', () => {
+    pushUndo();
     o.channel = channel.value;
     if (o.channel === 'grok'){
       o.size = '1024x1024';
@@ -527,6 +667,7 @@ function fillGenForm(o, slot){
   box.checked = (o.input_fidelity || state.input_fidelity) === 'low';
   box.addEventListener('pointerdown', e => e.stopPropagation());
   box.addEventListener('change', () => {
+    pushUndo();
     o.input_fidelity = box.checked ? 'low' : '';
     state.input_fidelity = o.input_fidelity;
     document.getElementById('fidelity').checked = box.checked;
@@ -553,7 +694,24 @@ function fillGenForm(o, slot){
   const pair = document.createElement('div');
   pair.className = 'pair';
   pair.appendChild(channel); pair.appendChild(size); pair.appendChild(pad);
-  form.appendChild(prompt); form.appendChild(pair); form.appendChild(fid); form.appendChild(hint); form.appendChild(actions);
+  const scopeRow = document.createElement('div');
+  scopeRow.className = 'pair';
+  // 迁移范围只写本节点,不回写全局:迁移必须是节点级声明
+  const mkScope = (key, label) => {
+    const s = document.createElement('select');
+    s.innerHTML = '<option value="preserve">' + label + ':保留</option><option value="transfer">' + label + ':迁移</option>';
+    s.value = o[key] || 'preserve';
+    s.addEventListener('pointerdown', e => e.stopPropagation());
+    s.addEventListener('change', () => {
+      pushUndo();
+      o[key] = s.value;
+      scheduleSave(); syncSelection();
+    });
+    return s;
+  };
+  scopeRow.appendChild(mkScope('style_scope', '画风'));
+  scopeRow.appendChild(mkScope('pose_scope', '姿态'));
+  form.appendChild(prompt); form.appendChild(pair); form.appendChild(scopeRow); form.appendChild(fid); form.appendChild(hint); form.appendChild(actions);
   slot.appendChild(form);
 }
 
@@ -567,11 +725,11 @@ function fillExtractForm(o, slot){
   kind.addEventListener('pointerdown', e => e.stopPropagation());
   kind.addEventListener('change', () => { o.kind = kind.value; scheduleSave(); });
   const body = document.createElement('textarea');
-  body.placeholder = '把图连到左侧，点提取。会按生图技能编成 HEAD / PRESERVE / POSE 或 STYLE / DO NOT INCLUDE。';
+  body.placeholder = '把一张或多张图连到左侧，点提取。多图会跨图聚合(N 样本)。按生图技能编成 HEAD / PRESERVE / POSE 或 STYLE / DO NOT INCLUDE。';
   body.value = o.text || '';
   body.addEventListener('pointerdown', e => e.stopPropagation());
   body.addEventListener('wheel', e => e.stopPropagation());
-  body.addEventListener('input', () => { o.text = body.value; scheduleSave(); });
+  body.addEventListener('input', () => { pushUndoThrottled('ext:'+o.id); o.text = body.value; scheduleSave(); });
   const hint = document.createElement('div');
   hint.className = 'gen-hint';
   hint.textContent = '本地量图 + 技能编译，不请求上游';
@@ -587,10 +745,10 @@ async function runExtract(id, bodyEl, hintEl){
   await save();
   if (hintEl) hintEl.textContent = '正在本地提取…';
   setMsg('正在本地提取（不请求上游）…');
-  const r = await post('/api/board/extract', { node_id: id });
+  const r = await post('/api/board/extract', { node_id: id, board_id: boardId });
   if (!r.ok){ setMsg(r.message||'提取失败','err'); if (hintEl) hintEl.textContent = r.message||'失败'; return; }
   const o = obj(id);
-  if (o) o.text = r.text || o.text;
+  if (o) { pushUndo(); o.text = r.text || o.text; }
   if (bodyEl && r.text) bodyEl.value = r.text;
   if (hintEl) hintEl.textContent = '已提取 · 可接到生成节点';
   setMsg(r.message||'已提取','ok');
@@ -598,7 +756,8 @@ async function runExtract(id, bodyEl, hintEl){
 }
 
 function graphRoles(){
-  const gen = obj(state.genId) || state.objects.filter(o => o.type==='gen')[0];
+  const gen = state.objects.find(o => o.type==='gen' && (state.genId ? o.id === state.genId : true))
+    || state.objects.find(o => o.type==='gen');
   const images = [], texts = [];
   if (gen){
     for (const e of state.edges){
@@ -618,6 +777,7 @@ function graphRoles(){
 function addEdge(from, to){
   if (!from || !to || from===to) return;
   if (state.edges.some(e => e.from===from && e.to===to)) return;
+  pushUndo();
   state.edges.push({ id: uid(), from, to });
   if (obj(to)?.type==='gen') state.genId = to;
   scheduleSave();
@@ -678,6 +838,7 @@ function syncSelection(){
           bits.push(roles.ref ? '图二已接' : '无图二');
           if ((o.channel||'gpt')==='grok' && roles.ref) bits.push('Grok 不能带图二');
           bits.push(roles.texts.length ? '文本 '+roles.texts.length : '无文本节点');
+          bits.push('画风:' + (o.style_scope === 'transfer' ? '迁移' : '保留') + '/姿态:' + (o.pose_scope === 'transfer' ? '迁移' : '保留'));
         }
         hint.textContent = bits.join(' · ') || '接入图片 / 文本后点底部生成';
       }
@@ -713,6 +874,8 @@ function syncAll(){
       if (sels[0] && document.activeElement !== sels[0]) sels[0].value = o.channel || 'gpt';
       if (sels[1] && document.activeElement !== sels[1]) sels[1].value = o.size || state.size || '1024x1536';
       if (sels[2] && document.activeElement !== sels[2]) sels[2].value = o.pad || state.pad || 'pad';
+      if (sels[3] && document.activeElement !== sels[3]) sels[3].value = o.style_scope || 'preserve';
+      if (sels[4] && document.activeElement !== sels[4]) sels[4].value = o.pose_scope || 'preserve';
       const box = el.querySelector('input[type="checkbox"]');
       if (box && document.activeElement !== box) box.checked = (o.input_fidelity || state.input_fidelity) === 'low';
     }
@@ -726,6 +889,7 @@ function syncAll(){
   }
   syncSelection();
   drawWires();
+  drawMinimap();
 }
 
 function openPreview(o){
@@ -758,10 +922,17 @@ function onObjDown(e){
   if (o && o.type!=='rect' && wantDrag){
     const w = screenToWorld(e.clientX, e.clientY);
     const ids = selectedIds.size ? [...selectedIds] : [id];
+    for (const nid of [...ids]){
+      const g = obj(nid);
+      if (g?.type === 'group'){
+        for (const m of state.objects) if (m.group === g.id && !ids.includes(m.id)) ids.push(m.id);
+      }
+    }
     dragging = {
       ids,
       origin: Object.fromEntries(ids.map(nid => { const n = obj(nid); return [nid, n ? {x:n.x,y:n.y} : {x:0,y:0}]; })),
-      x: w.x, y: w.y
+      x: w.x, y: w.y,
+      pre: undoData(), pushed: false
     };
     e.currentTarget.classList.add('dragging');
   }
@@ -812,6 +983,7 @@ window.addEventListener('pointermove', e => {
   }
   if (resizing){
     const o = obj(resizing.id); if (!o) return;
+    if (!resizing.pushed){ undoStack.push(resizing.pre); redoStack.length = 0; updateUndoBtns(); resizing.pushed = true; }
     const w = screenToWorld(e.clientX, e.clientY);
     if (resizing.free){
       const dx = w.x - resizing.start.x, dy = w.y - resizing.start.y;
@@ -844,6 +1016,7 @@ window.addEventListener('pointermove', e => {
   }
   if (dragging){
     const w = screenToWorld(e.clientX, e.clientY);
+    if (!dragging.pushed){ undoStack.push(dragging.pre); redoStack.length = 0; updateUndoBtns(); dragging.pushed = true; }
     const dx = w.x - dragging.x, dy = w.y - dragging.y;
     for (const nid of dragging.ids){
       const o = obj(nid); if (!o || o.type==='rect') continue;
@@ -917,6 +1090,16 @@ ctxMenu.addEventListener('click', e => {
   if (act==='text') created = addTextAt(at.x, at.y);
   if (act==='extract') created = addExtractAt(at.x, at.y);
   if (act==='gen') created = addGenAt(at.x, at.y);
+  if (act==='presetStyle' || act==='presetPose'){
+    const kind = act==='presetStyle' ? 'style' : 'pose';
+    const p = addPreset(kind, at);
+    created = p.ext;
+    if (wire){
+      // 把预设的提取节点接进悬着的连线
+      if (wire.fromSide==='out') addEdge(wire.from, p.ext.id); else addEdge(p.ext.id, wire.from);
+      created = null; // 连线已在 addPreset 内部处理,避免重复默认接线
+    }
+  }
   if (act==='image' || act==='upload'){
     ctxAt = at;
     pendingWire = wire;
@@ -935,13 +1118,36 @@ window.addEventListener('keydown', e => {
   }
   if (e.key==='Escape'){
     if (preview.classList.contains('show')){ closePreview(); e.preventDefault(); return; }
+    if (keysPanel.classList.contains('show')){ toggleKeys(false); e.preventDefault(); return; }
     selected=null; selectedIds=new Set(); selectedEdge=null; placingText=false; wiring=null; hideCtx(); document.getElementById('toolText').classList.remove('active'); syncSelection(); drawWires();
   }
   if ((e.key==='Delete'||e.key==='Backspace') && document.activeElement.tagName!=='TEXTAREA' && document.activeElement.contentEditable!=='true'){
     if (selectedEdge && !selected){
+      pushUndo();
       state.edges = state.edges.filter(ed => ed.id!==selectedEdge);
       selectedEdge = null; drawWires(); scheduleSave();
     } else if (selected) delSelected();
+  }
+  if ((e.ctrlKey || e.metaKey) && (e.key==='z' || e.key==='Z') && document.activeElement.tagName!=='TEXTAREA' && document.activeElement.tagName!=='INPUT' && document.activeElement.contentEditable!=='true'){
+    e.preventDefault();
+    if (e.shiftKey) doRedo(); else doUndo();
+  }
+  if ((e.ctrlKey || e.metaKey) && (e.key==='y' || e.key==='Y') && document.activeElement.tagName!=='TEXTAREA' && document.activeElement.tagName!=='INPUT'){
+    e.preventDefault(); doRedo();
+  }
+  const inTextField = document.activeElement.tagName==='TEXTAREA' || document.activeElement.tagName==='INPUT' || document.activeElement.contentEditable==='true';
+  if ((e.ctrlKey || e.metaKey) && (e.key==='c' || e.key==='C') && !inTextField){
+    e.preventDefault(); copySelected();
+  }
+  if ((e.ctrlKey || e.metaKey) && (e.key==='v' || e.key==='V') && !inTextField){
+    e.preventDefault(); pasteClipboard();
+  }
+  if (e.key === '?' && !inTextField){
+    e.preventDefault(); toggleKeys();
+  }
+  if ((e.ctrlKey || e.metaKey) && (e.key==='g' || e.key==='G') && !inTextField){
+    e.preventDefault();
+    if (e.shiftKey) ungroupSelected(); else makeGroup();
   }
 });
 window.addEventListener('keyup', e => { if (e.code==='Space'){ space=false; world.classList.remove('space'); }});
@@ -953,28 +1159,36 @@ world.addEventListener('drop', async e => {
 });
 
 function addTextAt(x, y){
+  pushUndo();
   const o = { id: uid(), type:'text', x, y, text:'双击编辑文本' };
   state.objects.push(o); selected = o.id; selectedIds = new Set([o.id]); syncAll(); scheduleSave();
   return o;
 }
-function addExtractAt(x, y){
-  const o = { id: uid(), type:'extract', x, y, w:280, h:168, kind:'all', text:'' };
+function addExtractAt(x, y, kind){
+  pushUndo();
+  const o = { id: uid(), type:'extract', x, y, w:280, h:168, kind: kind || 'all', text:'' };
   state.objects.push(o); selected = o.id; selectedIds = new Set([o.id]); syncAll(); scheduleSave();
   return o;
 }
 function addGenAt(x, y){
+  pushUndo();
   const o = {
-    id: uid(), type:'gen', x, y, w:268, h:220,
+    id: uid(), type:'gen', x, y, w:268, h:252,
     channel: 'gpt',
     size: document.getElementById('size').value || state.size || '1024x1536',
     pad: document.getElementById('pad').value || state.pad || 'pad',
     input_fidelity: document.getElementById('fidelity').checked ? 'low' : (state.input_fidelity || ''),
+    style_scope: state.style_scope || 'preserve',
+    pose_scope: state.pose_scope || 'preserve',
+    identity_scope: state.identity_scope || 'preserve',
+    color_scope: state.color_scope || 'preserve',
     prompt: ''
   };
   state.objects.push(o); state.genId = o.id; selected = o.id; selectedIds = new Set([o.id]); syncAll(); scheduleSave();
   return o;
 }
 async function addFiles(files, at){
+  pushUndo();
   let w = at || screenToWorld(world.clientWidth/2, world.clientHeight/2);
   for (const f of files){
     if (!f.type.startsWith('image/')) continue;
@@ -995,7 +1209,9 @@ function fileToB64(file){
 function delSelected(){
   const ids = selectedIds.size ? new Set(selectedIds) : (selected ? new Set([selected]) : new Set());
   if (!ids.size) return;
+  pushUndo();
   state.objects = state.objects.filter(o => !ids.has(o.id) && !ids.has(o.parent));
+  for (const o of state.objects) if (o.group && ids.has(o.group)) o.group = '';
   state.edges = state.edges.filter(e => !ids.has(e.from) && !ids.has(e.to));
   if (ids.has(state.identityId)) state.identityId='';
   if (ids.has(state.refId)) state.refId='';
@@ -1036,6 +1252,7 @@ document.getElementById('toolRect').onclick = () => {
   setMsg('在图一上拖出要改的区域。','ok');
   const onDown = e => {
     const w = screenToWorld(e.clientX, e.clientY);
+    pushUndo();
     const rec = { id: uid(), type:'rect', parent: ident.id, nx:0, ny:0, nw:0.1, nh:0.1 };
     state.objects = state.objects.filter(o => !(o.type==='rect' && o.parent===ident.id));
     state.objects.push(rec);
@@ -1045,18 +1262,262 @@ document.getElementById('toolRect').onclick = () => {
   };
   world.addEventListener('pointerdown', onDown, true);
 };
+// ---- 预设:一键建好"提取(画风/姿态)+ 生成"并连线,单条撤销 ----
+function addPreset(kind, at){
+  pushUndo();
+  document.getElementById('fidelity').checked = true;
+  undoSuppressed++;
+  try {
+    const c = at || screenToWorld(world.clientWidth*0.3, world.clientHeight*0.3);
+    const ext = addExtractAt(c.x, c.y, kind);
+    const g = addGenAt(c.x + 360, c.y);
+    g.identity_scope = 'preserve'; g.color_scope = 'preserve'; g.input_fidelity = 'low';
+    if (kind === 'style'){ g.style_scope = 'transfer'; g.pose_scope = 'preserve'; }
+    else { g.pose_scope = 'transfer'; g.style_scope = 'preserve'; }
+    addEdge(ext.id, g.id);
+    selected = ext.id; selectedIds = new Set([ext.id]);
+    syncAll(); scheduleSave();
+    setMsg(kind==='style'
+      ? '画风迁移预设:① 参考图连到提取节点 → ② 点「提取」 → ③ 图一连到生成节点(设图一) → ④ 点「生成」。'
+      : '姿态迁移预设:① 动作参考连到提取节点 → ② 点「提取」 → ③ 图一(人物)连到生成节点 → ④ 点「生成」。', 'ok');
+    return { ext, g };
+  } finally {
+    undoSuppressed--;
+  }
+}
+document.getElementById('toolPresetStyle').onclick = () => addPreset('style');
+document.getElementById('toolPresetPose').onclick = () => addPreset('pose');
+// ---- P11: 画风库(蒸馏包管理 + 一键复用) ----
+const stylesPanel = document.getElementById('stylesPanel');
+async function toggleStyles(force){
+  const show = force !== undefined ? force : !stylesPanel.classList.contains('show');
+  stylesPanel.classList.toggle('show', show);
+  if (show) await loadStyles();
+}
+async function loadStyles(){
+  const grid = document.getElementById('stylesGrid');
+  grid.innerHTML = '<span class="empty">加载中…</span>';
+  const r = await fetch('/api/board/styles').then(x => x.json()).catch(() => ({items: []}));
+  grid.innerHTML = '';
+  const items = r.items || [];
+  document.getElementById('stylesEmpty').hidden = items.length > 0;
+  for (const it of items){
+    const card = document.createElement('div');
+    card.className = 'style-item';
+    if (it.preview){
+      const img = document.createElement('img');
+      img.loading = 'lazy'; img.src = imgUrl(it.preview); img.title = it.name;
+      card.appendChild(img);
+    }
+    const name = document.createElement('div'); name.className = 'si-name'; name.textContent = it.name;
+    const meta = document.createElement('div'); meta.className = 'si-meta';
+    meta.textContent = `${it.source_count} 样本 · 风险 ${it.identity_risk} · ` +
+      (it.approved ? (it.approved_high_risk ? '已审核(高风险人工)' : '已审核') : '未审核');
+    const btns = document.createElement('div'); btns.className = 'si-btns';
+    const mkBtn = (label, fn, primary) => {
+      const b = document.createElement('button');
+      b.className = 'btn' + (primary ? ' primary' : ''); b.textContent = label;
+      b.onclick = e => { e.stopPropagation(); fn(); };
+      return b;
+    };
+    btns.appendChild(mkBtn('应用到生成', () => applyStyle(it), true));
+    if (!it.approved) btns.appendChild(mkBtn('批准', async () => {
+      let r = await post('/api/board/distill-approve', { package_dir: it.dir });
+      if (!r.ok && r.high_risk && confirm('身份风险 high:确认已逐张检查样例、删除含人脸/身份特征的裁片后强制批准?'))
+        r = await post('/api/board/distill-approve', { package_dir: it.dir, allow_high_risk: true });
+      if (!r.ok){ setMsg(r.message || '批准失败','err'); return; }
+      loadStyles(); setMsg('已批准:' + it.name,'ok');
+    }));
+    btns.appendChild(mkBtn('改名', async () => {
+      const name = prompt('画风包名称:', it.name); if (name === null) return;
+      const r = await post('/api/board/style-rename', { package_dir: it.dir, name });
+      if (!r.ok){ setMsg(r.message || '改名失败','err'); return; }
+      loadStyles();
+    }));
+    btns.appendChild(mkBtn('删除', async () => {
+      if (!confirm('删除画风包「' + it.name + '」?线稿/样例/指纹文件将一并删除,不可恢复。')) return;
+      const r = await post('/api/board/style-delete', { package_dir: it.dir });
+      if (!r.ok){ setMsg(r.message || '删除失败','err'); return; }
+      loadStyles();
+    }));
+    card.appendChild(name); card.appendChild(meta); card.appendChild(btns);
+    grid.appendChild(card);
+  }
+}
+async function applyStyle(it){
+  const gen = (selected && obj(selected)?.type === 'gen') ? obj(selected)
+            : state.objects.find(o => o.type === 'gen');
+  if (!gen){ setMsg('画布上没有生成节点:先创建一个,或选中它后再应用。','err'); return; }
+  pushUndo();
+  undoSuppressed++;
+  try {
+    const card = { id: uid(), type:'text', x: gen.x - 340, y: gen.y, text: it.card_text || '' };
+    state.objects.push(card);
+    state.edges.push({ id: uid(), from: card.id, to: gen.id });
+    let dy = card.y + 160;
+    const items = [];
+    const CLS_NAME = { stroke: '笔触样例', fabric: '材质样例', face: '五官样例(高风险)' };
+    for (const p of (it.linearts || [])) items.push({ path: p, name: 'lineart(笔触结构)', role: 'lineart_reference' });
+    for (const p of (it.exemplars || [])) items.push({ path: p.path || p, name: p.cls ? CLS_NAME[p.cls] : '笔触样例', role: 'exemplar_reference', identity_risk: p.identity_risk || 'low' });
+    for (const im of items){
+      const n = { id: uid(), type:'image', path: im.path, name: im.name,
+        x: card.x, y: dy, w: 220, h: 165, role: im.role,
+        distill_manifest: it.manifest, distill_approved: it.approved,
+        tone_src: (it.sources || [])[0], tone_json: it.tone_json, identity_risk: im.identity_risk };
+      state.objects.push(n);
+      state.edges.push({ id: uid(), from: n.id, to: gen.id });
+      dy += 190;
+    }
+    state.genId = gen.id;
+    gen.style_scope = 'transfer'; gen.identity_scope = 'preserve'; gen.color_scope = 'preserve';
+    gen.input_fidelity = 'low';
+    document.getElementById('fidelity').checked = true;
+    selected = card.id; selectedIds = new Set([card.id]);
+    syncAll(); scheduleSave();
+    setMsg(`已应用「${it.name}」:画风卡 + ${items.length} 个参考已连到生成节点,fidelity=low。检查样例后点「预算」。`,'ok');
+  } finally {
+    undoSuppressed--;
+  }
+}
+document.getElementById('toolStyles').onclick = () => toggleStyles();
+document.getElementById('stylesClose').onclick = () => toggleStyles(false);
+
+// ---- P7/P10: 画风蒸馏(支持多选聚合) + 确定性对色 ----
+async function distillSelected(){
+  const imgs = [...selectedIds].map(nid => obj(nid)).filter(o => o && o.type === 'image');
+  if (!imgs.length){ setMsg('先选中一张或多张图片节点(画风来源)再蒸馏。','err'); return; }
+  await save();
+  setMsg(`蒸馏中(${imgs.length} 张样本):线稿模型 + 笔触采样 + 色调指纹(本地,约 1-3 分钟)…`);
+  const r = await post('/api/board/distill', { node_ids: imgs.map(o => o.id), board_id: boardId });
+  if (!r.ok){ setMsg(r.message || '蒸馏失败','err'); return; }
+  pushUndo();
+  undoSuppressed++;
+  try {
+    const first = imgs[0];
+    const base = { x: first.x + (first.w || 280) + 40, y: first.y };
+    const card = { id: uid(), type:'text', x: base.x, y: base.y, text: r.card_text || '(画风卡为空)' };
+    state.objects.push(card);
+    let dy = base.y + 140;
+    const items = [];
+    const CLS_NAME = { stroke: '笔触样例', fabric: '材质样例', face: '五官样例(高风险)' };
+    for (const p of (r.linearts || [])) items.push({ path: p, name: 'lineart(笔触结构)', role: 'lineart_reference' });
+    for (const p of (r.exemplars || [])) items.push({ path: p.path, name: CLS_NAME[p.cls] || '样例', role: 'exemplar_reference', identity_risk: p.identity_risk });
+    for (const im of items){
+      const n = { id: uid(), type:'image', path: im.path, name: im.name,
+        x: base.x + 340, y: dy, w: 240, h: 180,
+        tone_src: (r.ref_paths || [])[0], tone_json: r.tone_json, distill_manifest: r.manifest,
+        distill_approved: false, role: im.role, identity_risk: im.identity_risk || 'low' };
+      state.objects.push(n);
+      dy += 190;
+    }
+    selected = card.id; selectedIds = new Set([card.id]);
+    syncAll(); scheduleSave();
+    setMsg(r.message + ' 样例默认未审核:逐张检查后点「审核蒸馏包」。','ok');
+  } finally {
+    undoSuppressed--;
+  }
+}
+function addEdgeInternal(from, to){
+  if (!from || !to || from === to) return;
+  if (state.edges.some(e => e.from===from && e.to===to)) return;
+  state.edges.push({ id: uid(), from, to });
+}
+async function approveSelectedDistill(){
+  const o = obj(selected);
+  const manifest = o?.distill_manifest;
+  if (!manifest){ setMsg('选中的不是蒸馏包节点。','err'); return; }
+  const packageDir = manifest.replace(/[\\/][^\\/]+$/, '');
+  let r = await post('/api/board/distill-approve', { package_dir: packageDir });
+  if (!r.ok && r.high_risk){
+    if (!confirm('该蒸馏包身份风险为 high。请先逐张检查样例并删除含人脸/身份特征的裁片。\n确认剩余样例仅含画法证据后，强制批准吗？')) return;
+    r = await post('/api/board/distill-approve', { package_dir: packageDir, allow_high_risk: true });
+  }
+  if (!r.ok){ setMsg(r.message || '审核失败','err'); return; }
+  for (const n of state.objects) if (n.distill_manifest === manifest) n.distill_approved = true;
+  scheduleSave(); setMsg('蒸馏包已审核' + (r.approved_high_risk ? '(人工强制,高风险已记录在 manifest)' : '') + '，样例现在允许作为生成参考。','ok');
+}
+async function poseEstimateSelected(){
+  const o = obj(selected);
+  if (!o || o.type !== 'image'){ setMsg('先选中姿态源图片。','err'); return; }
+  await save(); setMsg('姿态估计中:本地 OpenPose 权重…');
+  const r = await post('/api/board/pose', { board_id: boardId, node_id: o.id });
+  if (!r.ok){ setMsg(r.message || '姿态估计失败: 未生成任何姿态数据','err'); return; }
+  pushUndo(); undoSuppressed++;
+  try {
+    const card = {id:uid(),type:'text',x:o.x+(o.w||280)+40,y:o.y,text:'POSE\n'+(r.pose_json||'')+'\npose_estimated=true\npose_controlled=false'};
+    state.objects.push(card);
+    if (r.overlay){ state.objects.push({id:uid(),type:'image',path:r.overlay,name:'pose-overlay(估计)',x:card.x+340,y:card.y,w:240,h:180,role:'pose_reference',pose_json:r.pose_json,pose_estimated:true,pose_controlled:false}); }
+    selected=card.id; selectedIds=new Set([card.id]); syncAll(); scheduleSave(); setMsg(r.message,'ok');
+  } finally { undoSuppressed--; }
+}
+async function toneAlignSelected(){
+  const o = obj(selected);
+  if (!o || o.type !== 'image'){ setMsg('先选中要调色的成图节点。','err'); return; }
+  const others = [...selectedIds].map(nid => obj(nid)).find(n => n && n.type === 'image' && n.id !== o.id && n.path);
+  const refPath = o.tone_src || (others && others.path);
+  if (!refPath){ setMsg('没有色调参考:选中成图时一并选中蒸馏产出的图片节点,或先对画风源图跑过蒸馏。','err'); return; }
+  await save();
+  setMsg('对色中:LAB 统计确定性对齐(本地,不出网)…');
+  const allow = confirm('对色会改变成图配色，设置 color_scope=transfer 后继续吗？');
+  if (!allow) return;
+  state.color_scope = 'transfer';
+  const r = await post('/api/board/tone-align', { node_id: o.id, board_id: boardId,
+    ref_path: refPath, tone_json: o.tone_json, authorize_color_transfer: true });
+  if (!r.ok){ setMsg(r.message || '对色失败','err'); return; }
+  pushUndo();
+  const scale = (o.w || 280) / r.w;
+  const n = { id: uid(), type:'image', path: r.path, name: (r.path||'').split(/[/\\]/).pop(),
+    x: o.x + (o.w || 280) + 40, y: o.y, w: r.w * scale, h: r.h * scale, tone_src: refPath };
+  state.objects.push(n);
+  addEdgeInternal(o.id, n.id);
+  selected = n.id; selectedIds = new Set([n.id]);
+  syncAll(); scheduleSave();
+  setMsg(r.message,'ok');
+}
+document.getElementById('toolDistill').onclick = distillSelected;
+document.getElementById('toolTone').onclick = toneAlignSelected;
+document.getElementById('toolPose').onclick = poseEstimateSelected;
+document.getElementById('approveDistill').onclick = approveSelectedDistill;
+document.getElementById('reviewJob').onclick = async () => {
+  const o = obj(selected);
+  if (!o?.job_id){ setMsg('选中的结果图没有可验收的 job_id。','err'); return; }
+  const verdict = prompt('验收 verdict: pass / fail / uncertain', 'uncertain');
+  if (!['pass','fail','uncertain'].includes(verdict)) return;
+  const names = ['requested_change','identity_preservation','style_transfer','pose_transfer','reference_leakage','color_scope'];
+  const checks = {};
+  for (const name of names){ const v = prompt(name + ': pass / fail / uncertain', 'uncertain'); if (!['pass','fail','uncertain'].includes(v)) return; checks[name] = v; }
+  const r = await post('/api/board/review', {job_id:o.job_id, verdict, checks});
+  setMsg(r.ok ? '验收已登记: ' + (r.status || verdict) : (r.message || '验收登记失败'), r.ok ? 'ok' : 'err');
+};
 document.getElementById('toolDel').onclick = delSelected;
 document.getElementById('setIdent').onclick = () => {
   if (!selected || obj(selected)?.type!=='image') return;
+  pushUndo();
   if (state.refId===selected) state.refId = state.identityId || '';
   state.identityId = selected;
   syncSelection(); scheduleSave();
 };
 document.getElementById('setRef').onclick = () => {
   if (!selected || obj(selected)?.type!=='image') return;
+  pushUndo();
   if (state.identityId===selected) state.identityId = state.refId || '';
   state.refId = selected;
   syncSelection(); scheduleSave();
+};
+document.getElementById('repairRoles').onclick = () => {
+  // 多生成节点画布:优先修复选中的生成节点,否则第一块
+  const gen = (selected && obj(selected)?.type === 'gen') ? obj(selected)
+            : state.objects.find(o => o.type === 'gen');
+  if (!gen){ setMsg('画布上没有生成节点。','err'); return; }
+  const connected = state.objects.filter(o => o.type === 'image' && state.edges.some(e => e.from === o.id && e.to === gen.id));
+  if (!connected.length){ setMsg('没有图片直接连到生成节点，无法自动修复图一。','err'); return; }
+  const ident = connected.find(o => o.id === state.identityId) || connected[0];
+  const ref = connected.find(o => o.id !== ident.id) || null;
+  if (!confirm('将「' + (ident.name || ident.id) + '」设为图一' + (ref ? '，「' + (ref.name || ref.id) + '」设为图二' : '') + '？')) return;
+  pushUndo();
+  state.identityId = ident.id; state.refId = ref ? ref.id : '';
+  syncSelection(); scheduleSave();
+  setMsg('已修复角色引用：图一 ' + ident.id + (ref ? ' · 图二 ' + ref.id : ''),'ok');
 };
 document.getElementById('toggleWires').onclick = () => {
   showWires = !showWires;
@@ -1066,8 +1527,9 @@ document.getElementById('toggleWires').onclick = () => {
 document.getElementById('fit').onclick = () => { state.cam={x:80,y:80,z:1}; applyCam(); scheduleSave(); };
 document.getElementById('zoomIn').onclick = () => { state.cam.z = Math.min(3, state.cam.z*1.12); applyCam(); };
 document.getElementById('zoomOut').onclick = () => { state.cam.z = Math.max(0.15, state.cam.z/1.12); applyCam(); };
-document.getElementById('prompt').oninput = e => { state.prompt=e.target.value; scheduleSave(); };
+document.getElementById('prompt').oninput = e => { pushUndoThrottled('dock'); state.prompt=e.target.value; scheduleSave(); };
 function writeGenField(key, value){
+  pushUndo();
   state[key] = value;
   const g = obj(state.genId) || graphRoles().gen;
   if (g) g[key] = value;
@@ -1082,46 +1544,380 @@ async function post(url, body){
   const r = await fetch(url, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body||{}) });
   return r.json();
 }
+
+// ---- P1: 复制/粘贴(带内部连线,偏移 36px) ----
+let clipboard = null;
+function copySelected(){
+  if (!selectedIds.size) return false;
+  const ids = new Set(selectedIds);
+  const objs = state.objects.filter(o => ids.has(o.id) || (o.type==='rect' && ids.has(o.parent)));
+  if (!objs.length) return false;
+  clipboard = {
+    objects: JSON.parse(JSON.stringify(objs)),
+    edges: state.edges.filter(e => ids.has(e.from) && ids.has(e.to)).map(e => ({ ...e }))
+  };
+  setMsg('已复制 ' + objs.filter(o => o.type!=='rect').length + ' 个节点','ok');
+  return true;
+}
+function pasteClipboard(){
+  if (!clipboard || !clipboard.objects.length) return;
+  pushUndo();
+  const map = {};
+  const newObjs = clipboard.objects.map(o => {
+    const n = JSON.parse(JSON.stringify(o));
+    n.id = uid(); map[o.id] = n.id;
+    if (n.type !== 'rect'){ n.x += 36; n.y += 36; }
+    return n;
+  });
+  for (const n of newObjs){
+    if (n.parent && map[n.parent]) n.parent = map[n.parent];
+    if (n.group && map[n.group]) n.group = map[n.group];
+  }
+  for (const e of clipboard.edges){
+    const from = map[e.from] || e.from, to = map[e.to] || e.to;
+    if (!state.edges.some(x => x.from===from && x.to===to)) state.edges.push({ id: uid(), from, to });
+  }
+  state.objects.push(...newObjs);
+  const gen = newObjs.find(o => o.type==='gen');
+  if (gen) state.genId = gen.id;
+  const pasted = newObjs.filter(o => o.type!=='rect').map(o => o.id);
+  selected = pasted[0] || null; selectedIds = new Set(pasted);
+  syncAll(); scheduleSave();
+  setMsg('已粘贴 ' + pasted.length + ' 个节点','ok');
+}
+
+// ---- P1: 快捷键浮层 ----
+const keysPanel = document.getElementById('keysPanel');
+function toggleKeys(force){
+  keysPanel.classList.toggle('show', force !== undefined ? force : !keysPanel.classList.contains('show'));
+}
+document.getElementById('keysBtn').onclick = () => toggleKeys();
+document.getElementById('keysClose').onclick = () => toggleKeys(false);
+
+// ---- P1: 深色主题 ----
+const themeBtn = document.getElementById('themeBtn');
+function applyTheme(t){
+  document.body.classList.toggle('dark', t === 'dark');
+  themeBtn.textContent = t === 'dark' ? '☀️' : '🌙';
+}
+applyTheme(localStorage.getItem('boardTheme') || 'light');
+themeBtn.onclick = () => {
+  const next = document.body.classList.contains('dark') ? 'light' : 'dark';
+  localStorage.setItem('boardTheme', next);
+  applyTheme(next);
+  drawMinimap();
+};
+
+// ---- P3: 资产面板(产图 只读浏览,点击落画布中心) ----
+const assetsPanel = document.getElementById('assetsPanel');
+let assetsLoaded = false;
+async function toggleAssets(force){
+  const show = force !== undefined ? force : !assetsPanel.classList.contains('show');
+  assetsPanel.classList.toggle('show', show);
+  if (show && !assetsLoaded){ assetsLoaded = true; await loadAssets(); }
+}
+async function loadAssets(){
+  const grid = document.getElementById('assetsGrid');
+  grid.innerHTML = '<span class="empty">加载中…</span>';
+  const r = await fetch('/api/board/assets').then(x => x.json()).catch(() => ({ items: [] }));
+  grid.innerHTML = '';
+  const items = r.items || [];
+  document.getElementById('assetsEmpty').hidden = items.length > 0;
+  for (const it of items){
+    const img = document.createElement('img');
+    img.loading = 'lazy';
+    img.src = imgUrl(it.path);
+    img.title = it.name;
+    img.onclick = () => addAssetToBoard(it);
+    grid.appendChild(img);
+  }
+}
+function addAssetToBoard(it){
+  pushUndo();
+  const im = new Image();
+  im.onload = () => {
+    const scale = 280 / Math.max(1, im.naturalWidth);
+    const c = screenToWorld(world.clientWidth/2, world.clientHeight/2);
+    const o = { id: uid(), type:'image', path: it.path, name: it.name, x: c.x, y: c.y, w: im.naturalWidth*scale, h: im.naturalHeight*scale };
+    state.objects.push(o);
+    selected = o.id; selectedIds = new Set([o.id]);
+    syncAll(); scheduleSave();
+    setMsg('已放置 ' + it.name,'ok');
+  };
+  im.onerror = () => setMsg('缩略图加载失败: ' + it.name,'err');
+  im.src = imgUrl(it.path);
+}
+document.getElementById('assetsBtn').onclick = () => toggleAssets();
+document.getElementById('assetsClose').onclick = () => toggleAssets(false);
+
+// ---- P3: 成组(group 容器节点,成员以 o.group 引用;删组不删成员) ----
+function makeGroup(){
+  const ids = [...selectedIds].filter(nid => { const o = obj(nid); return o && o.type!=='rect' && o.type!=='group'; });
+  if (ids.length < 2){ setMsg('先选中至少两个节点再打组。','err'); return; }
+  pushUndo();
+  let x0=Infinity, y0=Infinity, x1=-Infinity, y1=-Infinity;
+  for (const nid of ids){
+    const b = nodeBox(obj(nid));
+    x0 = Math.min(x0, b.x); y0 = Math.min(y0, b.y);
+    x1 = Math.max(x1, b.x + b.w); y1 = Math.max(y1, b.y + b.h);
+  }
+  const g = { id: uid(), type:'group', x:x0-24, y:y0-24, w:(x1-x0)+48, h:(y1-y0)+48, title:'组' };
+  state.objects.push(g);
+  for (const nid of ids) obj(nid).group = g.id;
+  selected = g.id; selectedIds = new Set([g.id]);
+  syncAll(); scheduleSave();
+  setMsg('已成组(' + ids.length + ' 个节点)。拖动组框带动成员;双击组框拆组。','ok');
+}
+function ungroupSelected(){
+  const g = obj(selected);
+  if (!g || g.type !== 'group') return;
+  pushUndo();
+  for (const o of state.objects) if (o.group === g.id) o.group = '';
+  state.objects = state.objects.filter(o => o.id !== g.id);
+  selected = null; selectedIds = new Set();
+  syncAll(); scheduleSave();
+  setMsg('已拆组,成员保留。','ok');
+}
+
+// ---- P0: 撤销/重做(全量快照栈,cam 不参与撤销) ----
+let undoStack = [], redoStack = [], lastTextKey = '', lastTextAt = 0;
+function undoData(){
+  return JSON.stringify({ objects: state.objects, edges: state.edges, prompt: state.prompt,
+    size: state.size, pad: state.pad, input_fidelity: state.input_fidelity,
+    identityId: state.identityId, refId: state.refId, genId: state.genId });
+}
+function updateUndoBtns(){
+  document.getElementById('undoBtn').disabled = !undoStack.length;
+  document.getElementById('redoBtn').disabled = !redoStack.length;
+}
+let undoSuppressed = 0;
+function pushUndo(){
+  if (undoSuppressed > 0) return;
+  undoStack.push(undoData());
+  if (undoStack.length > 50) undoStack.shift();
+  redoStack.length = 0;
+  updateUndoBtns();
+}
+function pushUndoThrottled(key){
+  const now = Date.now();
+  if (key === lastTextKey && now - lastTextAt < 1200){ lastTextAt = now; return; }
+  lastTextKey = key; lastTextAt = now;
+  pushUndo();
+}
+function applyUndoSnap(json){
+  const d = JSON.parse(json);
+  state.objects = d.objects; state.edges = d.edges;
+  state.prompt = d.prompt; state.size = d.size; state.pad = d.pad; state.input_fidelity = d.input_fidelity;
+  state.identityId = d.identityId; state.refId = d.refId; state.genId = d.genId;
+  document.getElementById('prompt').value = state.prompt || '';
+  document.getElementById('size').value = state.size || '1024x1536';
+  document.getElementById('pad').value = state.pad || 'pad';
+  document.getElementById('fidelity').checked = state.input_fidelity === 'low';
+  if (selected && !obj(selected)) selected = null;
+  selectedIds = new Set([...selectedIds].filter(id => obj(id)));
+  syncAll(); scheduleSave();
+}
+function doUndo(){
+  if (!undoStack.length || document.activeElement?.closest?.('.dock, .obj')) return;
+  redoStack.push(undoData());
+  applyUndoSnap(undoStack.pop());
+  updateUndoBtns(); setMsg('已撤销','ok');
+}
+function doRedo(){
+  if (!redoStack.length || document.activeElement?.closest?.('.dock, .obj')) return;
+  undoStack.push(undoData());
+  applyUndoSnap(redoStack.pop());
+  updateUndoBtns(); setMsg('已重做','ok');
+}
+document.getElementById('undoBtn').onclick = doUndo;
+document.getElementById('redoBtn').onclick = doRedo;
+
+// ---- P0: 小地图(对象包围盒 + 视口矩形,点击/拖动跳转) ----
+const minimap = document.getElementById('minimap');
+const mmCtx = minimap.getContext('2d');
+let mmBounds = null;
+function drawMinimap(){
+  const has = state.objects.some(o => o.type !== 'rect');
+  minimap.classList.toggle('show', has);
+  if (!has) return;
+  const W = minimap.width, H = minimap.height;
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const o of state.objects){
+    if (o.type === 'rect') continue;
+    const b = nodeBox(o);
+    x0 = Math.min(x0, b.x); y0 = Math.min(y0, b.y);
+    x1 = Math.max(x1, b.x + b.w); y1 = Math.max(y1, b.y + b.h);
+  }
+  const vw = world.clientWidth / state.cam.z, vh = world.clientHeight / state.cam.z;
+  const vx = -state.cam.x / state.cam.z, vy = -state.cam.y / state.cam.z;
+  x0 = Math.min(x0, vx); y0 = Math.min(y0, vy);
+  x1 = Math.max(x1, vx + vw); y1 = Math.max(y1, vy + vh);
+  const pad = 40; x0 -= pad; y0 -= pad; x1 += pad; y1 += pad;
+  const s = Math.min(W / (x1 - x0), H / (y1 - y0));
+  const ox = (W - (x1 - x0) * s) / 2, oy = (H - (y1 - y0) * s) / 2;
+  mmBounds = { x0, y0, s, ox, oy };
+  mmCtx.clearRect(0, 0, W, H);
+  const colors = { image:'#2563eb', gen:'#059669', extract:'#ca8a04', text:'#94a3b8', group:'#8b5cf6' };
+  for (const o of state.objects){
+    if (o.type === 'rect') continue;
+    const b = nodeBox(o);
+    mmCtx.globalAlpha = o.type === 'group' ? 0.25 : 0.75;
+    mmCtx.fillStyle = colors[o.type] || '#94a3b8';
+    mmCtx.fillRect(ox + (b.x - x0) * s, oy + (b.y - y0) * s, Math.max(3, b.w * s), Math.max(3, b.h * s));
+  }
+  mmCtx.globalAlpha = 1;
+  mmCtx.strokeStyle = '#2563eb'; mmCtx.lineWidth = 1.5;
+  mmCtx.strokeRect(ox + (vx - x0) * s, oy + (vy - y0) * s, vw * s, vh * s);
+}
+function mmToWorld(e){
+  if (!mmBounds) return null;
+  const r = minimap.getBoundingClientRect();
+  const mx = (e.clientX - r.left) * (minimap.width / r.width);
+  const my = (e.clientY - r.top) * (minimap.height / r.height);
+  return { x: mmBounds.x0 + (mx - mmBounds.ox) / mmBounds.s, y: mmBounds.y0 + (my - mmBounds.oy) / mmBounds.s };
+}
+minimap.addEventListener('pointerdown', e => {
+  e.stopPropagation(); e.preventDefault();
+  try { minimap.setPointerCapture(e.pointerId); } catch (_){}
+  const jump = ev => {
+    const w = mmToWorld(ev); if (!w) return;
+    state.cam.x = world.clientWidth / 2 - w.x * state.cam.z;
+    state.cam.y = world.clientHeight / 2 - w.y * state.cam.z;
+    applyCam();
+  };
+  jump(e);
+  const up = () => { window.removeEventListener('pointermove', jump); window.removeEventListener('pointerup', up); };
+  window.addEventListener('pointermove', jump);
+  window.addEventListener('pointerup', up);
+});
 function snapshot(){
   return {
     cam: state.cam, objects: state.objects, edges: state.edges,
     prompt: document.getElementById('prompt').value,
     size: document.getElementById('size').value, pad: document.getElementById('pad').value,
     input_fidelity: document.getElementById('fidelity').checked ? 'low':'',
+    identity_scope: state.identity_scope || 'preserve', pose_scope: state.pose_scope || 'preserve',
+    style_scope: state.style_scope || 'preserve', color_scope: state.color_scope || 'preserve',
     identityId: state.identityId, refId: state.refId, genId: state.genId,
   };
 }
 async function save(){
   Object.assign(state, snapshot());
-  await post('/api/board/save', snapshot());
-  document.getElementById('status').textContent = '已保存';
+  document.getElementById('status').textContent = '保存中…';
+  const payload = { ...snapshot(), board_id: boardId, expected_revision: state._revision || undefined };
+  saveInFlight = post('/api/board/save', payload);
+  try {
+    const r = await saveInFlight;
+    if (!r || r.conflict){
+      document.getElementById('status').textContent = '发生冲突';
+      setMsg(r?.message || '画布已被其他端修改，请刷新后再保存。', 'err');
+      return false;
+    }
+    if (r.ok === false){
+      document.getElementById('status').textContent = '保存失败';
+      setMsg(r.message || '保存失败', 'err');
+      return false;
+    }
+    state._revision = r._revision || r.revision || state._revision;
+    document.getElementById('status').textContent = '已保存';
+    return true;
+  } catch (e) {
+    document.getElementById('status').textContent = '保存失败';
+    setMsg('保存失败: ' + e, 'err');
+    return false;
+  } finally {
+    saveInFlight = null;
+  }
 }
+async function loadBoards(){
+  const list = await fetch('/api/board/list').then(r => r.json()).catch(() => []);
+  const sel = document.getElementById('boardSel');
+  sel.innerHTML = '';
+  for (const b of list){
+    const o = document.createElement('option');
+    o.value = b.id; o.textContent = (b.name || b.id) + ' · ' + (b.objects||0) + '节点';
+    sel.appendChild(o);
+  }
+  if (![...sel.options].some(o => o.value === boardId)){
+    boardId = sel.options[0]?.value || 'default';
+    localStorage.setItem('boardActive', boardId);
+    location.reload();
+    return;
+  }
+  sel.value = boardId;
+}
+document.getElementById('boardSel').onchange = async e => {
+  await save();
+  boardId = e.target.value; localStorage.setItem('boardActive', boardId); location.reload();
+};
+document.getElementById('boardNew').onclick = async () => {
+  const name = prompt('新画布名称:', '画布 ' + new Date().toLocaleDateString());
+  if (name === null) return;
+  if (!await save()) return;
+  const r = await post('/api/board/create', { name });
+  if (!r.ok){ setMsg(r.message||'创建失败','err'); return; }
+  boardId = r.id; localStorage.setItem('boardActive', boardId); location.reload();
+};
+document.getElementById('boardRen').onclick = async () => {
+  const name = prompt('重命名当前画布:');
+  if (name === null) return;
+  if (!await save()) return;
+  const r = await post('/api/board/rename', { board_id: boardId, name });
+  if (!r.ok){ setMsg(r.message||'改名失败','err'); return; }
+  loadBoards();
+};
+document.getElementById('boardDel').onclick = async () => {
+  if (!confirm('删除当前画布「' + (document.getElementById('boardSel').selectedOptions[0]?.textContent || boardId) + '」?节点与连线不可恢复。')) return;
+  await save();
+  const r = await post('/api/board/delete', { board_id: boardId });
+  if (!r.ok){ setMsg(r.message||'删除失败','err'); return; }
+  boardId = 'default'; localStorage.setItem('boardActive', boardId); location.reload();
+};
 async function load(){
-  const r = await fetch('/api/board');
+  await loadBoards();
+  const r = await fetch('/api/board?b=' + encodeURIComponent(boardId));
   const d = await r.json();
   state = Object.assign(state, d);
+  state._revision = d._revision || d.revision || '';
   if (!Array.isArray(state.edges)) state.edges = [];
   document.getElementById('prompt').value = state.prompt||'';
   document.getElementById('size').value = state.size||'1024x1536';
   document.getElementById('pad').value = state.pad||'pad';
   document.getElementById('fidelity').checked = state.input_fidelity==='low';
+  state.identity_scope = state.identity_scope || 'preserve';
+  state.pose_scope = state.pose_scope || 'preserve';
+  state.style_scope = state.style_scope || 'preserve';
+  state.color_scope = state.color_scope || 'preserve';
+  // 一次性迁移:旧画布的全局迁移范围落到各生成节点上,全局复位为保留
+  let migrated = false;
+  for (const g of state.objects.filter(o => o.type === 'gen')){
+    if (g.style_scope === undefined || g.pose_scope === undefined){
+      if (g.style_scope === undefined) g.style_scope = state.style_scope;
+      if (g.pose_scope === undefined) g.pose_scope = state.pose_scope;
+      if ((g.h || 0) < 252) g.h = 252;
+      migrated = true;
+    }
+  }
+  state.style_scope = 'preserve'; state.pose_scope = 'preserve';
+  if (migrated) scheduleSave();
   applyCam(); syncAll();
 }
 async function generate(dry){
   await save();
   setMsg(dry ? '正在做预算（不发送）…' : '正在生成（一次 POST）…');
-  const r = await post('/api/board/generate', { dry_run: !!dry });
+  const r = await post('/api/board/generate', { dry_run: !!dry, board_id: boardId });
   if (!r.ok){ setMsg(r.message||'失败','err'); return; }
   if (dry){ setMsg((r.message||'预算完成') + (r.fields? '\n字段：'+r.fields:''),'ok'); return; }
   if (r.path){
+    pushUndo();
     const roles = graphRoles();
     const g = roles.gen || obj(state.genId);
     const ident = roles.ident || obj(state.identityId);
     const x = g ? g.x + (g.w||260) + 48 : (ident ? ident.x + (ident.w||280) + 48 : 80);
     const y = g ? g.y : (ident ? ident.y : 80);
     const scale = 280 / r.w;
-    const o = { id: uid(), type:'image', path:r.path, name:(r.path||'').split(/[/\\]/).pop(), x, y, w:r.w*scale, h:r.h*scale };
-    state.objects.push(o);
+      const o = { id: uid(), type:'image', path:r.path, name:(r.path||'').split(/[/\\]/).pop(), x, y, w:r.w*scale, h:r.h*scale, job_id:r.job_id || '' };
+      state.objects.push(o);
     if (g) addEdge(g.id, o.id);
     selected = o.id; selectedIds = new Set([o.id]);
     syncAll(); await save();
