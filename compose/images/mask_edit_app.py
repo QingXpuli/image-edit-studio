@@ -296,7 +296,18 @@ def make_visual_mask(image: "Image.Image", canvas_mask: "Image.Image",
     else:
         nw, nh, ox, oy = tw, th, 0, 0
 
-    cm = canvas_mask.resize((nw, nh), Image.LANCZOS)
+    if pad_mode == "crop":
+        source_ar, target_ar = image.width / image.height, tw / th
+        if source_ar > target_ar:
+            crop_width = int(image.height * target_ar)
+            offset = (image.width - crop_width) // 2
+            box = (offset, 0, offset + crop_width, image.height)
+        else:
+            crop_height = int(image.width / target_ar)
+            offset = (image.height - crop_height) // 2
+            box = (0, offset, image.width, offset + crop_height)
+        canvas_mask = canvas_mask.crop(box)
+    cm = canvas_mask.resize((nw, nh), Image.NEAREST)
     painted = np.asarray(cm.split()[3]) > 127
     if invert:
         painted = ~painted
@@ -471,6 +482,9 @@ def relay_post(url: str, body: bytes, content_type: str, api_key: str, timeout=3
     req.add_header("Content-Type", content_type)
     req.add_header("Authorization", f"Bearer {api_key}")
     req.add_header("Accept", "application/json")
+    req.add_header("User-Agent", (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"))
     ctx = ssl.create_default_context()
     try:
         with urllib.request.urlopen(req, timeout=timeout, context=ctx) as r:
@@ -2562,6 +2576,8 @@ class Handler(BaseHTTPRequestHandler):
             origin = f"http://{host}"
             page = PAGE.replace("__APP_ORIGIN__", origin)
             self._send(200, page.encode("utf-8"), "text/html; charset=utf-8")
+        elif path == "/health":
+            return self._json({"ok": True, "service": "zimage-project", "pid": os.getpid(), "root": os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))})
         elif path == "/favicon.ico":
             self._send(204, b"")
         elif path == "/gallery":
@@ -2576,7 +2592,20 @@ class Handler(BaseHTTPRequestHandler):
             return self._board_image((qs.get("p") or [""])[0])
         elif path == "/api/board":
             import board_app
-            return self._json(board_app.load_board())
+            qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            try:
+                return self._json(board_app.load_board((qs.get("b") or ["default"])[0]))
+            except ValueError as e:
+                return self._json({"ok": False, "message": str(e)}, 400)
+        elif path == "/api/board/list":
+            import board_app
+            return self._json(board_app.list_boards())
+        elif path == "/api/board/styles":
+            import board_app
+            return self._json(board_app.list_styles())
+        elif path == "/api/board/assets":
+            import board_app
+            return self._json(board_app.list_assets())
         elif path == "/api/update":
             import board_app
             return self._json(board_app.update_status())
@@ -2593,12 +2622,32 @@ class Handler(BaseHTTPRequestHandler):
             return self.api_edit()
         if path == "/api/board/save":
             return self.api_board_save()
+        if path == "/api/board/create":
+            return self.api_board_create()
+        if path == "/api/board/rename":
+            return self.api_board_rename()
+        if path == "/api/board/delete":
+            return self.api_board_delete()
         if path == "/api/board/upload":
             return self.api_board_upload()
         if path == "/api/board/generate":
             return self.api_board_generate()
         if path == "/api/board/extract":
             return self.api_board_extract()
+        if path == "/api/board/distill":
+            return self.api_board_distill()
+        if path == "/api/board/pose":
+            return self.api_board_pose()
+        if path == "/api/board/tone-align":
+            return self.api_board_tone_align()
+        if path == "/api/board/review":
+            return self.api_board_review()
+        if path == "/api/board/distill-approve":
+            return self.api_board_distill_approve()
+        if path == "/api/board/style-rename":
+            return self.api_board_style_rename()
+        if path == "/api/board/style-delete":
+            return self.api_board_style_delete()
         if path == "/api/update":
             return self.api_update()
         self._json({"ok": False, "message": "unknown endpoint"}, 404)
@@ -2628,7 +2677,40 @@ class Handler(BaseHTTPRequestHandler):
     def api_board_save(self):
         import board_app
         j = self._read_json()
-        return self._json(board_app.save_board(j))
+        bid = str(j.get("board_id") or "default")
+        expected_revision = j.get("expected_revision")
+        expected_mtime = j.get("expected_mtime")
+        try:
+            result = board_app.save_board(
+                j,
+                bid,
+                expected_mtime=float(expected_mtime) if expected_mtime is not None else None,
+                expected_revision=str(expected_revision) if expected_revision else None,
+            )
+            return self._json(result, 409 if result.get("conflict") else 200)
+        except (ValueError, TypeError) as e:
+            return self._json({"ok": False, "message": str(e)}, 400)
+
+    def api_board_create(self):
+        import board_app
+        j = self._read_json()
+        return self._json(board_app.create_board(str(j.get("name") or "")))
+
+    def api_board_rename(self):
+        import board_app
+        j = self._read_json()
+        try:
+            return self._json(board_app.rename_board(str(j.get("board_id") or ""), str(j.get("name") or "")))
+        except ValueError as e:
+            return self._json({"ok": False, "message": str(e)}, 400)
+
+    def api_board_delete(self):
+        import board_app
+        j = self._read_json()
+        try:
+            return self._json(board_app.delete_board(str(j.get("board_id") or "")))
+        except ValueError as e:
+            return self._json({"ok": False, "message": str(e)}, 400)
 
     def api_board_upload(self):
         import board_app
@@ -2643,17 +2725,79 @@ class Handler(BaseHTTPRequestHandler):
     def api_board_generate(self):
         import board_app
         j = self._read_json()
-        board = board_app.load_board()
+        try:
+            board = board_app.load_board(str(j.get("board_id") or "default"))
+        except ValueError as e:
+            return self._json({"ok": False, "message": str(e)}, 400)
         dry = bool(j.get("dry_run"))
-        no_cache = bool(j.get("no_cache")) or not dry
+        no_cache = bool(j.get("no_cache"))
         return self._json(board_app.run_edit(board, dry_run=dry, no_cache=no_cache))
 
     def api_board_extract(self):
         import board_app
         j = self._read_json()
-        board = board_app.load_board()
+        try:
+            board = board_app.load_board(str(j.get("board_id") or "default"))
+        except ValueError as e:
+            return self._json({"ok": False, "message": str(e)}, 400)
         node_id = str(j.get("node_id") or "")
-        return self._json(board_app.run_extract(board, node_id))
+        bid = str(j.get("board_id") or "default")
+        return self._json(board_app.run_extract(board, node_id, bid))
+
+    def api_board_distill(self):
+        import board_app
+        j = self._read_json()
+        try:
+            board = board_app.load_board(str(j.get("board_id") or "default"))
+        except ValueError as e:
+            return self._json({"ok": False, "message": str(e)}, 400)
+        node_ids = j.get("node_ids") or ([j.get("node_id")] if j.get("node_id") else [])
+        return self._json(board_app.run_distill(board, [str(x) for x in node_ids]))
+
+    def api_board_pose(self):
+        import board_app
+        j = self._read_json()
+        try:
+            board = board_app.load_board(str(j.get("board_id") or "default"))
+        except ValueError as e:
+            return self._json({"ok": False, "message": str(e)}, 400)
+        return self._json(board_app.run_pose_extract(board, str(j.get("node_id") or "")))
+
+    def api_board_tone_align(self):
+        import board_app
+        j = self._read_json()
+        try:
+            board = board_app.load_board(str(j.get("board_id") or "default"))
+        except ValueError as e:
+            return self._json({"ok": False, "message": str(e)}, 400)
+        return self._json(board_app.align_tone(
+            board,
+            str(j.get("node_id") or ""),
+            str(j.get("ref_path") or ""),
+            bool(j.get("authorize_color_transfer")),
+            str(j.get("tone_json")) if j.get("tone_json") else None,
+        ))
+
+    def api_board_distill_approve(self):
+        import board_app
+        j = self._read_json()
+        return self._json(board_app.approve_distill(str(j.get("package_dir") or ""), bool(j.get("allow_high_risk"))))
+
+    def api_board_style_rename(self):
+        import board_app
+        j = self._read_json()
+        return self._json(board_app.rename_style(str(j.get("package_dir") or ""), str(j.get("name") or "")))
+
+    def api_board_style_delete(self):
+        import board_app
+        j = self._read_json()
+        return self._json(board_app.delete_style(str(j.get("package_dir") or "")))
+
+    def api_board_review(self):
+        import board_app
+        j = self._read_json()
+        checks = j.get("checks") or {}
+        return self._json(board_app.review_job(str(j.get("job_id") or ""), str(j.get("verdict") or "uncertain"), checks))
 
     def api_update(self):
         import board_app
@@ -2679,6 +2823,10 @@ class Handler(BaseHTTPRequestHandler):
 
         req = urllib.request.Request(base + "/models")
         req.add_header("Authorization", f"Bearer {key}")
+        req.add_header("User-Agent", (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"))
+        req.add_header("Accept", "application/json")
         try:
             with urllib.request.urlopen(req, timeout=30,
                                         context=ssl.create_default_context()) as r:
@@ -2713,6 +2861,10 @@ class Handler(BaseHTTPRequestHandler):
                 "设好后需**重启本地服务**才会读到；也可以在页面上手动填。")})
         req = urllib.request.Request(base + "/models")
         req.add_header("Authorization", f"Bearer {key}")
+        req.add_header("User-Agent", (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"))
+        req.add_header("Accept", "application/json")
         try:
             with urllib.request.urlopen(req, timeout=45,
                                         context=ssl.create_default_context()) as r:
@@ -2733,255 +2885,35 @@ class Handler(BaseHTTPRequestHandler):
         if "multipart/form-data" not in ctype or "boundary=" not in ctype:
             return self._json({"ok": False, "message": "expected multipart/form-data"})
         boundary = ctype.split("boundary=", 1)[1].strip().strip('"').encode()
-        body = self._read_body()
-        sys.stderr.write(f"  [/api/edit] received {len(body):,} bytes\n")
-        fields, files = parse_multipart(body, boundary)
-        sys.stderr.write(f"  [/api/edit] parts: {sorted(files.keys())} "
-                         f"sizes: {[ (k, len(v[1])) for k, v in files.items() ]}\n")
-
-        base = (fields.get("base_url") or "").rstrip("/")
-        key = fields.get("api_key") or ""
-        model = fields.get("model") or "gpt-image-1"
-        prompt = fields.get("prompt") or ""
-        size = fields.get("size") or "1024x1536"
-        quality = fields.get("quality") or "high"
-        pad_mode = fields.get("pad_mode") or "pad"
-        mask_mode = fields.get("mask_mode") or "std"
-        scope = (fields.get("scope") or "mask").strip()
-        engine_name = (fields.get("engine") or "gpt").strip().lower()
-        resolution = (fields.get("resolution") or "1k").strip().lower()
-        ope = (fields.get("operation") or "").strip().lower()   # "", "t2i", "i2i"
-        eng = engine_of(engine_name)
-
-        # ---- reference images (role-tagged) ---------------------------------
-        refs = take_reference_images(fields, files)
-        if refs:
-            sys.stderr.write(
-                "  [/api/edit] refs: " + ", ".join(
-                    f"{r[0]}:{r[1]}({len(r[2]) // 1024}KB)" for r in refs) + "\n")
-            if not eng.get("multi_image"):
-                names = "、".join(f"{i+1}){r[1]}" for i, r in enumerate(refs))
-                return self._json({
-                    "ok": False,
-                    "message": (f"当前引擎「{eng['label']}」不接受多张输入图片"
-                                f"（2026-10-06 实测：image + image[1] 返回 HTTP 400）。\n"
-                                f"你已添加 {len(refs)} 张参考图：{names}\n\n"
-                                f"请二选一：\n"
-                                f"  · 改用「GPT Image 2」引擎（支持多张参考图）；或\n"
-                                f"  · 清空参考图列表。")})
-
-
-        # engine decides credentials unless the caller overrode them explicitly
-        if not base:
-            base = eng["base"]
-        if not key:
-            key = eng["key"]
-        if not model:
-            model = eng["t2i_model"]
-
-        if not base or not key:
-            return self._json({"ok": False, "message": "缺少 Base URL 或 API Key"})
-
-        # ---- work out what the user asked for --------------------------------
+        fields, files = parse_multipart(self._read_body(), boundary)
+        from image_cli_adapter import execute_image_request
+        engine = engine_of(fields.get("engine") or "gpt")
+        base = (fields.get("base_url") or engine["base"]).rstrip("/")
+        key = fields.get("api_key") or (engine["key"] if base == engine["base"] else "")
         has_image = "image_file" in files
-        t2i = (ope == "t2i") or (not has_image and ope != "i2i")
-        if ope == "i2i" and not has_image:
-            return self._json({"ok": False, "message": "图生图需要先选择图片"})
-
-        if t2i:
-            src = None
-            whole = True
-            tw, th = (int(v) for v in size.lower().split("x"))
-            model = model or eng["t2i_model"]
-            vis_png = pad_paint = alpha_png = image_png = None
-            prompt_used = prompt
-        else:
-            try:
-                tw, th = (int(v) for v in size.lower().split("x"))
-            except Exception:
-                return self._json({"ok": False, "message": f"尺寸无法解析: {size}"})
-            whole = (scope == "whole")
-            if not whole and not eng["mask"]:
-                return self._json({
-                    "ok": False,
-                    "message": ("Grok 不支持遮罩局部修改（它的 /images/edits 没有 mask 机制，"
-                                "且不接受第二张参考图）。请把「修改范围」改成"
-                                "「整张图（无需涂遮罩）」，或改用 GPT Image 2 引擎。")})
-            if not whole and "mask_file" not in files:
-                return self._json({"ok": False, "message": "缺少遮罩"})
-
-            import io
-            try:
-                src = Image.open(io.BytesIO(files["image_file"][1]))
-                src.load()
-            except Exception as e:
-                return self._json({"ok": False, "message": f"图片无法读取: {e}"})
-
-            canvas_mask = None
-            if not whole:
-                canvas_mask = Image.open(io.BytesIO(files["mask_file"][1])).convert("RGBA")
-
-            # paint the edit region flat red and send it as reference image #2
-            if whole:
-                vis_png, pad_paint, schema_prefix = None, None, ""
-            else:
-                vis_png, pad_paint = make_visual_mask(
-                    src, canvas_mask, tw, th, pad_mode, invert=(mask_mode == "inv"))
-                if not pad_paint.any():
-                    return self._json({"ok": False,
-                                       "message": "遮罩为空：请涂出要修改的区域（或切换遮罩语义）"})
-                schema_prefix = SCHEMA_PROMPT
-
-            # ---- authoritative slot map, built from what is REALLY sent ------
-            # Send order is fixed below: image, image[1]=mask ref (when mask mode),
-            # then image[2..] = the user's role-tagged references, in added order.
-            mask_slot_sent = bool(eng["mask"] and not whole)
-            slots = [(1, SLOT_CONTENT_CN[0], SLOT_CONTENT_CN[1],
-                      SLOT_CONTENT_EN[0], SLOT_CONTENT_EN[1])]
-            if mask_slot_sent:
-                slots.append((2, SLOT_MASK_CN[0], SLOT_MASK_CN[1],
-                              SLOT_MASK_EN[0], SLOT_MASK_EN[1]))
-            ref_first = 2 + (1 if mask_slot_sent else 0)
-
-            used = 1 + (1 if mask_slot_sent else 0)
-            if used + len(refs) > MAX_IMAGE_SLOTS:
-                over = used + len(refs) - MAX_IMAGE_SLOTS
-                compose_parts = ["内容图 1 张"]
-                if mask_slot_sent:
-                    compose_parts.append("红色标记图 1 张")
-                compose_parts.append(f"参考图 {len(refs)} 张")
-                fix_hint = "请减掉 %d 张参考图" % over
-                if mask_slot_sent:
-                    fix_hint += "，或把「修改范围」改成「整张图」以腾出红色标记图占的位置。"
-                else:
-                    fix_hint += "。"
-                over_msg = (
-                    f"图片数量超出上限：本请求要发 {used + len(refs)} 张，"
-                    f"但接口只接受 {MAX_IMAGE_SLOTS} 张"
-                    f"（image / image[1] / image[2] / image[3]）。\n"
-                    f"当前构成：{'＋'.join(compose_parts)}。\n\n" + fix_hint
-                )
-                return self._json({"ok": False, "message": over_msg})
-
-            for i, (role, rname, _rbytes) in enumerate(refs):
-                lcn, icn = REF_ROLES[role]["cn"]
-                len_, ien = REF_ROLES[role]["en"]
-                slots.append((ref_first + i, lcn, icn, len_, ien))
-
-            # Order matters: SCHEMA_PROMPT must stay the FIRST thing the model
-            # reads — its "red = the only editable area" contract was verified
-            # 100% on the protected region (see make_visual_mask). The slot map is
-            # new information, so it goes after it and before the user's own text.
-            header = build_slot_header(slots, _has_cjk(prompt))
-            prompt_used = schema_prefix + header + prompt
-            sys.stderr.write("  [/api/edit] slots: " + "; ".join(
-                ("image=" if s[0] == 1 else f"image[{s[0] - 1}]=") + s[1] for s in slots) + "\n")
-            slot_map = [{"index": s[0], "label": s[1]} for s in slots]
-            alpha_png = build_mask_alpha(pad_paint) if pad_paint is not None else None
-
-            img_fit = normalise_to_size(src, tw, th, pad_mode)
-            ibuf = io.BytesIO()
-            img_fit.save(ibuf, "PNG", optimize=True)
-            image_png = ibuf.getvalue()
-
-        # ---- 1. TEXT-TO-IMAGE -------------------------------------------------
-        if t2i:
-            body_obj = {"model": model or eng["t2i_model"], "prompt": prompt, "n": 1}
-            if eng["uses_quality"]:
-                body_obj["quality"] = quality
-            if eng["uses_resolution"]:
-                body_obj["resolution"] = resolution
-                body_obj["size"] = size
-                # Grok's default reply is an unreachable imgen.x.ai url, so ask
-                # for inline data. This is the ONLY way Grok text-to-image works
-                # from this machine (verified).
-                body_obj["response_format"] = "b64_json"
-            else:
-                body_obj["size"] = size
-            url = base + "/images/generations"
-            payload = json.dumps(body_obj).encode("utf-8")
-            status, raw = relay_post(url, payload, "application/json", key, timeout=420)
-            if status == -1:
-                return self._json({"ok": False, "message":
-                                   f"请求未发出：{raw.decode('utf-8','replace')}\nURL: {url}"})
-            text = raw.decode("utf-8", "replace")
-            if status != 200:
-                return self._json({"ok": False, "message":
-                                   f"HTTP {status}\n{text[:800]}\n\nURL: {url}"})
-            try:
-                data = json.loads(text)
-            except Exception:
-                return self._json({"ok": False, "message": f"返回不是 JSON:\n{text[:400]}"})
-            items = data.get("data") or []
-            if not items:
-                return self._json({"ok": False, "message": f"返回里没有图片:\n{text[:400]}"})
-            b64, err = engine_fetch_image(items[0])
-            if err:
-                return self._json({"ok": False, "message": err})
-            return self._json({"ok": True, "image_b64": force_size_b64(b64, size)})
-
-        # ---- 2. IMAGE-TO-IMAGE ------------------------------------------------
-        bnd = ("----MaskEdit" + uuid.uuid4().hex).encode()
-        out_files = {"image": ("image.png", image_png, "image/png")}
-        if eng["mask"] and not whole:
-            out_files["image[1]"] = ("mask_ref.png", vis_png, "image/png")
-            # undocumented; harmless on relays that ignore it, useful on those
-            # that implement the standard OpenAI convention
-            out_files["mask"] = ("mask.png", alpha_png, "image/png")
-
-        # user references land after the mask slot so numbering stays contiguous
-        # and matches the header injected into the prompt above.
-        for i, (role, rname, rbytes) in enumerate(refs):
-            try:
-                rimg = Image.open(io.BytesIO(rbytes))
-                rimg.load()
-            except Exception as e:
-                return self._json({"ok": False,
-                                   "message": f"参考图无法读取（{rname}）: {e}"})
-            rfit = normalise_to_size(rimg, tw, th, pad_mode)
-            rbuf = io.BytesIO()
-            rfit.save(rbuf, "PNG", optimize=True)
-            out_files[f"image[{ref_first + i - 1}]"] = (
-                f"ref{i + 1}_{role}.png", rbuf.getvalue(), "image/png")
-
-        mp_fields = {"model": model or eng["i2i_model"], "prompt": prompt_used, "n": "1"}
-        if eng["uses_quality"]:
-            mp_fields["quality"] = quality
-        if eng["uses_resolution"]:
-            mp_fields["resolution"] = resolution
-        mp_fields["size"] = size
-        if not eng["edits_b64"]:
-            # harmless probe: the relay ignores it here, but asking costs nothing
-            mp_fields["response_format"] = "b64_json"
-        mp_body = build_multipart(mp_fields, out_files, bnd)
-        url = base + "/images/edits"
-        status, raw = relay_post(url, mp_body,
-                                 f"multipart/form-data; boundary={bnd.decode()}",
-                                 key, timeout=420)
-
-        if status == -1:
-            return self._json({"ok": False,
-                               "message": f"请求未发出：{raw.decode('utf-8','replace')}\n\n"
-                                          f"URL: {url}"})
-        text = raw.decode("utf-8", "replace")
-        if status != 200:
-            return self._json({"ok": False, "message": f"HTTP {status}\n{text[:800]}\n\nURL: {url}"})
-
-        try:
-            data = json.loads(text)
-        except Exception:
-            return self._json({"ok": False, "message": f"返回不是 JSON:\n{text[:400]}"})
-
-        items = data.get("data") or []
-        if not items:
-            return self._json({"ok": False, "message": f"返回里没有图片:\n{text[:400]}"})
-        b64, err = engine_fetch_image(items[0])
-        if err:
-            return self._json({"ok": False, "message": err})
-        return self._json({"ok": True, "image_b64": force_size_b64(b64, size),
-                           "slot_map": slot_map,
-                           "ref_count": len(refs),
-                           "parts_sent": sorted(out_files.keys())})
+        operation = "generate" if fields.get("operation") == "t2i" or not has_image else "edit"
+        whole = (fields.get("scope") or "mask") == "whole" or operation == "generate"
+        references = take_reference_images(fields, files)
+        if references and not engine.get("multi_image"):
+            return self._json({"ok": False, "message": "当前引擎只接受一张内容图。"})
+        if not whole and not engine.get("mask"):
+            return self._json({"ok": False, "message": "当前引擎不支持遮罩。"})
+        if not whole and "mask_file" not in files:
+            return self._json({"ok": False, "message": "缺少遮罩。"})
+        result = execute_image_request(
+            prompt=fields.get("prompt") or "", source=files["image_file"][1] if has_image else None,
+            refs=[(role, raw) for role, _name, raw in references],
+            mask=files["mask_file"][1] if not whole else None,
+            protect=fields.get("mask_mode") == "inv",
+            size=fields.get("size") or "1024x1536", quality=fields.get("quality") or "low",
+            model=fields.get("model") or engine["t2i_model" if operation == "generate" else "i2i_model"],
+            base_url=base, api_key=key, pad=fields.get("pad_mode") or "pad", operation=operation,
+            dry_run=str(fields.get("dry_run") or "").lower() in ("1", "true"),
+            input_fidelity=fields.get("input_fidelity") or "",
+        )
+        result["message"] = result.get("error") or result.get("message") or "检查任务记录。"
+        result["ref_count"] = len(references)
+        return self._json(result)
 
 
 def main():

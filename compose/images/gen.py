@@ -35,6 +35,7 @@ from PIL import Image
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import mask_edit_app as app
+from image_payload import normalise_to_size
 
 # Transport credentials are process-env only. Do not consult user config or registry.
 BASE = os.environ.get("RELAY_BASE_URL", "https://image-direct.geiliapi.com/v1").rstrip("/")
@@ -59,7 +60,7 @@ SIZES = {
 
 
 def build_whole(src, tw, th, pad, style=None):
-    fit = app.normalise_to_size(src, tw, th, pad)
+    fit = normalise_to_size(src, tw, th, pad)
     b = io.BytesIO(); fit.save(b, "PNG", optimize=True)
     files = {"image": ("image.png", b.getvalue(), "image/png")}
     # Extra reference images ride the documented image[1..3] fields. This relay
@@ -85,7 +86,7 @@ def build_masked(src, protect, tw, th, pad):
     if not pad_paint.any():
         raise SystemExit("mask is empty - protect rectangle covers nothing")
     alpha = app.build_mask_alpha(pad_paint)
-    fit = app.normalise_to_size(src, tw, th, pad)
+    fit = normalise_to_size(src, tw, th, pad)
     b = io.BytesIO(); fit.save(b, "PNG", optimize=True)
     return ({"image": ("image.png", b.getvalue(), "image/png"),
              "image[1]": ("mask_ref.png", vis_png, "image/png"),
@@ -111,7 +112,8 @@ def require_config() -> None:
 
 
 def call_structured(fields, files, timeout=900, key=None, *, marker=None,
-                    report_path=None, opener=None):
+                    report_path=None, opener=None, operation="edit", endpoint=None):
+    """Submit exactly once; operation=generate uses JSON generations endpoint."""
     import image_transport as T
     started = time.monotonic()
     try:
@@ -120,11 +122,19 @@ def call_structured(fields, files, timeout=900, key=None, *, marker=None,
             result = T.CallResult(classification="missing_config")
             T.write_report(report_path, result)
             return result
-        bnd = ("----Gen" + uuid.uuid4().hex).encode()
-        body = app.build_multipart(fields, files, bnd)
-        req = urllib.request.Request(BASE + "/images/edits", data=body, method="POST")
-        req.add_header("Content-Type", f"multipart/form-data; boundary={bnd.decode()}")
+        endpoint = endpoint or ("/images/generations" if operation == "generate" else "/images/edits")
+        if operation == "generate":
+            body = json.dumps(dict(fields), ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+            req = urllib.request.Request(BASE + endpoint, data=body, method="POST")
+            req.add_header("Content-Type", "application/json")
+        else:
+            bnd = ("----Gen" + uuid.uuid4().hex).encode()
+            body = app.build_multipart(fields, files, bnd)
+            req = urllib.request.Request(BASE + endpoint, data=body, method="POST")
+            req.add_header("Content-Type", f"multipart/form-data; boundary={bnd.decode()}")
         req.add_header("Authorization", "Bearer " + selected)
+        req.add_header("User-Agent", T.BROWSER_UA)
+        req.add_header("Accept", "application/json")
     except Exception:
         result = T.CallResult(classification="local_error",
                               elapsed_s=round(time.monotonic() - started, 3))
