@@ -374,6 +374,49 @@ PLAN_SCHEMA_VERSION = "zimage-plan-v1"
 JOB_ID_RX = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 
 
+def _schema_prompt_hash() -> str:
+    try:
+        sys.path.insert(0, str(APP.parent))
+        import mask_edit_app
+        return R.sha256_text(mask_edit_app.SCHEMA_PROMPT)
+    except Exception:
+        return ""
+
+
+def _load_task_arg(a, *, out: Path | None = None) -> dict:
+    path = getattr(a, "task_file", "")
+    if not path:
+        return {"schema": "legacy_unknown", "legacy_unknown": True,
+                "required_checks": []}
+    try:
+        task = R.load_task(Path(path))
+    except ValueError as exc:
+        raise SystemExit(str(exc))
+    if out is not None and task.get("deliverable", {}).get("path"):
+        if Path(task["deliverable"]["path"]).resolve() != out.resolve():
+            raise SystemExit("task deliverable.path 必须与 --out 一致")
+    policy = task.get("side_effect_policy") or {}
+    scope = task.get("change_scope")
+    if scope not in {"whole", "mask", "generate"}:
+        raise SystemExit("task change_scope 必须是 whole、mask 或 generate")
+    if not policy.get("generation_authorized", False) and not getattr(a, "dry_run", False):
+        raise SystemExit("task 未明确 generation_authorized=true，阻止真实生成")
+    return task
+
+
+def _load_prepared(a) -> dict | None:
+    path = getattr(a, "prepared_payload", "")
+    if not path:
+        return None
+    expected = {"effective_params": {"size": a.size, "quality": a.quality,
+                                      "pad": a.pad, "model": a.model or _resolved_model(),
+                                      "input_fidelity": getattr(a, "input_fidelity", "")}}
+    try:
+        return R.validate_prepared_payload(Path(path), expected)
+    except ValueError as exc:
+        raise SystemExit(str(exc))
+
+
 def _valid_job_id(value: str) -> str:
     if not JOB_ID_RX.fullmatch(value) or value in (".", ".."):
         raise SystemExit("--job-id 只能以字母或数字开头，后接字母、数字、点、下划线或连字符")
@@ -381,8 +424,15 @@ def _valid_job_id(value: str) -> str:
 
 
 def _plan_data(a, *, persist_mask: Path | None = None) -> tuple[dict, Path | None]:
-    image = Path(a.image).resolve()
-    source_size = _validate_input(image)
+    operation = getattr(a, "operation", "edit") or "edit"
+    task = _load_task_arg(a)
+    payload = _load_prepared(a)
+    if operation == "generate":
+        a.whole = True
+    image = Path(a.image).resolve() if getattr(a, "image", "") else None
+    source_size = _validate_input(image) if image else None
+    if operation != "generate" and image is None:
+        raise SystemExit("edit/plan operation 需要 --image")
     prompt = _read_prompt(a)
     a.ref = _validate_refs(a.ref)
     sizes = _gen_sizes()
@@ -392,14 +442,14 @@ def _plan_data(a, *, persist_mask: Path | None = None) -> tuple[dict, Path | Non
     temp_dir = None
     if a.whole and (a.mask_file or a.rect or a.polygon or a.flood or a.grabcut is not None or a.protect):
         raise SystemExit("--whole 不能同时指定区域、遮罩或 --protect")
-    if not a.whole:
+    if image is not None and not a.whole:
         if persist_mask is not None:
             persist_mask.parent.mkdir(parents=True, exist_ok=True)
             mask = _prepare_mask(a, image, persist_mask)
         else:
             temp_dir = Path(tempfile.mkdtemp(prefix="zimage-plan-"))
             mask = _prepare_mask(a, image, temp_dir / "mask.png")
-    if mask:
+    if mask and image is not None:
         ratio, warnings = _mask_summary(image, mask, protect=a.protect)
     else:
         ratio, warnings = None, []
@@ -411,10 +461,13 @@ def _plan_data(a, *, persist_mask: Path | None = None) -> tuple[dict, Path | Non
                                refs=[Path(x) for x in a.ref], encode=getattr(a, "encode", "png"),
                                jpg_quality=getattr(a, "jpg_quality", 90),
                                budget_mib=getattr(a, "budget_mib", 1.55),
-                               endpoint=_resolved_endpoint(),
-                               mask_primary=mask_primary)
+                               endpoint=_resolved_endpoint(), mask_primary=mask_primary,
+                               input_fidelity=getattr(a, "input_fidelity", ""),
+                               schema_prompt_hash=_schema_prompt_hash(),
+                               operation=operation, sample_id=getattr(a, "sample_id", ""),
+                               task=task, payload_sha256=(payload or {}).get("payload_sha256", ""))
     estimated, coverage = (_estimate_bytes(image, mask, a.ref, a, mask_primary=mask_primary)
-                           if mask else (None, None))
+                           if mask and image is not None else (None, None))
     if mask and a.protect:
         warnings.append("反向保护模式不使用 mask-primary：保护语义就是保留圈内原像素")
     mask_sha256 = R.sha256_file(mask) if mask else None
@@ -425,9 +478,9 @@ def _plan_data(a, *, persist_mask: Path | None = None) -> tuple[dict, Path | Non
         "artifact_type": PLAN_ARTIFACT_TYPE,
         "schema_version": PLAN_SCHEMA_VERSION,
         "job_id": getattr(a, "job_id", "") or R.job_id(),
-        "source": str(image),
-        "source_size": list(source_size),
-        "source_sha256": R.sha256_file(image),
+        "source": str(image) if image else None,
+        "source_size": list(source_size) if source_size else None,
+        "source_sha256": R.sha256_file(image) if image else None,
         "mask": str(mask) if mask else None,
         "mask_sha256": mask_sha256,
         "mask_mode": "protect" if a.protect else ("edit" if mask else "whole"),
@@ -450,6 +503,13 @@ def _plan_data(a, *, persist_mask: Path | None = None) -> tuple[dict, Path | Non
         "budget_estimate": "deferred_to_run_round_dry_run" if estimated is None else "local_exact",
         "warnings": warnings,
         "status": "preflight_ok",
+        "operation": operation,
+        "task": task,
+        "input_fidelity": getattr(a, "input_fidelity", ""),
+        "schema_prompt_hash": _schema_prompt_hash(),
+        "sample_id": getattr(a, "sample_id", ""),
+        "payload": payload,
+        "payload_sha256": (payload or {}).get("payload_sha256", ""),
     }
     return data, mask
 
@@ -661,10 +721,14 @@ def cmd_edit(a) -> int:
         plan_path = Path(a.plan_file).resolve()
         plan = _load_plan_file(plan_path)
         _apply_plan_to_args(a, plan)
-    if not getattr(a, "image", ""):
-        raise SystemExit("必须给 --image 或 --plan-file")
-    image = Path(a.image).resolve()
-    _validate_input(image)
+    operation = getattr(a, "operation", "edit") or "edit"
+    task = _load_task_arg(a, out=Path(a.out).resolve())
+    payload = _load_prepared(a)
+    if operation != "generate" and not getattr(a, "image", ""):
+        raise SystemExit("必须给 --image 或 --plan-file（generate 可无源图）")
+    image = Path(a.image).resolve() if getattr(a, "image", "") else None
+    if image is not None:
+        _validate_input(image)
     prompt_txt = _read_prompt(a)
     a.ref = _validate_refs(a.ref)
     out = Path(a.out).resolve()
@@ -686,7 +750,11 @@ def cmd_edit(a) -> int:
             quality=a.quality, pad=a.pad, mask_invert=a.protect,
             refs=[Path(x) for x in a.ref], encode=a.encode,
             jpg_quality=getattr(a, "jpg_quality", 90), budget_mib=a.budget_mib,
-            endpoint=_resolved_endpoint(), mask_primary=mask_primary)
+            endpoint=_resolved_endpoint(), mask_primary=mask_primary,
+            input_fidelity=getattr(a, "input_fidelity", ""),
+            schema_prompt_hash=_schema_prompt_hash(), operation=operation,
+            sample_id=getattr(a, "sample_id", ""), task=task,
+            payload_sha256=(payload or {}).get("payload_sha256", ""))
         if a.plan_expected.get("fingerprint") != planned_fp:
             raise SystemExit("计划失效：请求 fingerprint 已变化")
         if plan_request.get("endpoint_sha256") != R.sha256_text(_resolved_endpoint()):
@@ -711,8 +779,9 @@ def cmd_edit(a) -> int:
             estimated = plan.get("estimated_request_bytes")
             coverage = plan.get("coverage_target_ratio")
         else:
-            mask = Path(a.mask_file) if recovering and a.mask_file else _prepare_mask(a, image, jd / "mask.png")
-            ratio, warnings = _mask_summary(image, mask, protect=a.protect) if mask else (None, [])
+            mask = (Path(a.mask_file) if recovering and a.mask_file else
+                    (_prepare_mask(a, image, jd / "mask.png") if image is not None else None))
+            ratio, warnings = _mask_summary(image, mask, protect=a.protect) if mask and image is not None else (None, [])
             mask_primary = bool(mask and not a.protect and not getattr(a, "no_primary", False))
             fp = R.request_fingerprint(source=image, mask=mask, prompt=prompt_txt,
                                        model=a.model or _resolved_model(), size=a.size,
@@ -720,32 +789,64 @@ def cmd_edit(a) -> int:
                                        refs=[Path(x) for x in a.ref], encode=a.encode,
                                        jpg_quality=getattr(a, "jpg_quality", 90),
                                        budget_mib=a.budget_mib,
-                                       endpoint=_resolved_endpoint(),
-                                       mask_primary=mask_primary)
+                                       endpoint=_resolved_endpoint(), mask_primary=mask_primary,
+                                       input_fidelity=getattr(a, "input_fidelity", ""),
+                                       schema_prompt_hash=_schema_prompt_hash(),
+                                       operation=operation, sample_id=getattr(a, "sample_id", ""),
+                                       task=task, payload_sha256=(payload or {}).get("payload_sha256", ""))
             estimated, coverage = _estimate_bytes(
                 image, mask, a.ref, a, mask_primary=mask_primary
-            )
+            ) if image is not None else (None, None)
             if mask and a.protect:
                 warnings.append("反向保护模式不使用 mask-primary：保护语义就是保留圈内原像素")
         prompt_file = jd / "prompt.txt"
         R.atomic_write_text(prompt_file, prompt_txt)
         R.update_manifest(manifest, job_id=job, state="preflight_ok", status="preflight_ok",
-                          source_sha256=R.sha256_file(image),
+                          source_sha256=R.sha256_file(image) if image is not None else None,
                           mask_sha256=R.sha256_file(mask) if mask else None,
                           prompt_sha256=R.sha256_text(R.normalize_prompt(prompt_txt)),
                           model=a.model or _resolved_model(), size=a.size, quality=a.quality,
                           pad=a.pad, mask_mode=("protect" if a.protect else ("edit" if mask else "whole")),
                           mask_ratio=ratio, coverage_target_ratio=coverage,
                           request_fingerprint=fp, warnings=warnings)
-        R.update_manifest(manifest, state="prepared", status="prepared")
+        R.update_manifest(manifest, state="prepared", status="prepared",
+                          operation=operation, task=task, sample_id=getattr(a, "sample_id", ""),
+                          input_fidelity=getattr(a, "input_fidelity", ""),
+                          schema_prompt_hash=_schema_prompt_hash(),
+                          payload_sha256=(payload or {}).get("payload_sha256", ""))
 
-        cache = None if a.no_cache or a.dry_run or recovering else R.load_valid_cache(_cache_root(), fp)
+        cache = None if a.dry_run or recovering else R.load_valid_cache(_cache_root(), fp)
+        cache_fp = fp
+        # Preserve cache reuse for legacy CLI calls whose fingerprint predates task metadata.
+        if cache is None and not a.task_file and operation == "edit" and not getattr(a, "sample_id", ""):
+            legacy_fp = R.legacy_request_fingerprint(
+                source=image, mask=mask, prompt=prompt_txt,
+                model=a.model or _resolved_model(), size=a.size, quality=a.quality,
+                pad=a.pad, mask_invert=a.protect, refs=[Path(x) for x in a.ref],
+                encode=a.encode, jpg_quality=getattr(a, "jpg_quality", 90),
+                budget_mib=a.budget_mib, endpoint=_resolved_endpoint(),
+                mask_primary=bool(mask and not a.protect and not getattr(a, "no_primary", False)))
+            cache = R.load_valid_cache(_cache_root(), legacy_fp)
+            if cache is None:
+                legacy_fp = R.request_fingerprint(
+                    source=image, mask=mask, prompt=prompt_txt,
+                    model=a.model or _resolved_model(), size=a.size, quality=a.quality,
+                    pad=a.pad, mask_invert=a.protect, refs=[Path(x) for x in a.ref],
+                    encode=a.encode, jpg_quality=getattr(a, "jpg_quality", 90),
+                    budget_mib=a.budget_mib, endpoint=_resolved_endpoint(),
+                    mask_primary=bool(mask and not a.protect and not getattr(a, "no_primary", False)),
+                    input_fidelity="", schema_prompt_hash="", operation="edit", sample_id="", task={},
+                    payload_sha256="")
+                cache = R.load_valid_cache(_cache_root(), legacy_fp)
+            if cache is not None:
+                cache_fp = legacy_fp
         if cache is not None:
             cached_result = Path(cache["result_path"])
             cache_validation = cache.get("validation") or {"status": "PASS"}
             R.atomic_copy(cached_result, out, force=a.force)
             R.update_manifest(manifest, state="cache_hit", status="cache_hit",
-                              cache_dir=str(_cache_root()), cached_result_sha256=cache.get("result_sha256"),
+                              cache_dir=str(_cache_root()), cache_fingerprint=cache_fp,
+                              cached_result_sha256=cache.get("result_sha256"),
                               output=str(out), result_size=cache.get("result_size"),
                               validation=cache_validation)
             final_status = cache_validation.get("status", "PASS")
@@ -759,6 +860,19 @@ def cmd_edit(a) -> int:
             print("✗ 未配置 RELAY_API_KEY —— 在花钱之前先停下。")
             return 2
 
+        lock = None
+        if not recovering and not a.dry_run:
+            try:
+                lock = R.acquire_submission_lock(_cache_root(), fp, job_id=job)
+            except R.SubmissionLockError as exc:
+                R.update_manifest(manifest, state="blocked", status="submission_guard",
+                                  failure_type="submission_guard", acceptance="unknown", error=str(exc))
+                print("✗ fingerprint 已有提交/未知 owner，拒绝重复发送")
+                return 5
+            shared_marker = os.environ.get("ZIMAGE_SUBMISSION_MARKER", "")
+            if shared_marker:
+                transport_env["ZIMAGE_SUBMISSION_MARKER"] = shared_marker
+            lock.mark("prepared", marker=shared_marker or None)
         sys.path.insert(0, str(APP.parent))
         import image_transport as T
         if not recovering:
@@ -772,11 +886,16 @@ def cmd_edit(a) -> int:
         temp_out = jd / ("recovered.tmp.png" if recovering else "result.tmp.png")
         report_path = jd / ("recovery.transport.json" if recovering else "transport.json")
         snapshot_path = jd / "response.private.json"
-        argv = [PY, str(ROUND), "--content", str(image), "--prompt", str(prompt_file),
+        argv = [PY, str(ROUND), "--prompt", str(prompt_file),
                 "--out", str(temp_out), "--size", a.size, "--quality", a.quality,
+                 "--operation", operation,
                 "--pad", a.pad, "--encode", a.encode, "--jpg-quality", str(a.jpg_quality),
                 "--budget-mib", str(a.budget_mib), "--transport-report", str(report_path),
                 "--snapshot", str(snapshot_path)]
+        if image is not None:
+            argv += ["--content", str(image)]
+        if getattr(a, "prepared_payload", ""):
+            argv += ["--prepared-payload", str(Path(a.prepared_payload).resolve())]
         if recovering:
             argv += ["--recover-from", str(snapshot_path)]
         for r in a.ref:
@@ -794,12 +913,19 @@ def cmd_edit(a) -> int:
         if a.input_fidelity:
             argv += ["--input-fidelity", a.input_fidelity]
         R.update_manifest(manifest, state="prepared", status="prepared", request_bytes=estimated)
+        if lock is not None:
+            lock.mark("sending", job_marker=str(temp_out) + ".submission")
         rc, log = _run(argv, capture=True, env=transport_env)
         R.atomic_write_text(jd / ("recovery.process.log" if recovering else "process.log"), log)
         report = _transport_report(report_path, marked=Path(str(temp_out) + ".submission").exists() or recovering)
         R.update_manifest(manifest, transport=report, phase=report["phase"],
                           acceptance=report["acceptance"], submit_attempts=report["submit_attempts"],
                           retryable_generation=False, attempts=report["submit_attempts"], recovery=recovering)
+        if lock is not None:
+            if report.get("acceptance") == "unknown" or (report.get("submit_attempts") or 0) > 0:
+                lock.mark("unknown", classification=report.get("classification"))
+            else:
+                lock.release()
         if a.dry_run:
             R.update_manifest(manifest, state="prepared", status="plan_only", dry_run=True,
                               submit_attempts=0, acceptance="not_sent")
@@ -1009,6 +1135,61 @@ def cmd_doctor(a) -> int:
     return 0
 
 
+def cmd_review(a) -> int:
+    """Bind a human semantic verdict to one saved job/output SHA."""
+    target = Path(a.job).resolve()
+    jobs_root = Path(os.environ.get("ZIMAGE_JOBS_DIR") or ROOT / ".zimage" / "jobs")
+    if not target.exists():
+        target = jobs_root / a.job
+    if target.is_file():
+        target = target.parent
+    manifest_path = target / "manifest.json"
+    if not manifest_path.is_file():
+        raise SystemExit(f"找不到 Job manifest：{manifest_path}")
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise SystemExit(f"Job manifest 无法读取：{exc}")
+    output = Path(manifest.get("output") or "")
+    if not output.is_file():
+        raise SystemExit("Job 没有可复核的 output 文件")
+    output_sha = R.sha256_file(output)
+    if a.output_sha256 and a.output_sha256 != output_sha:
+        raise SystemExit("output SHA256 与 Job 结果不一致")
+    checks = {}
+    for item in a.check:
+        if "=" not in item:
+            raise SystemExit(f"--check 需要 name=pass|fail：{item}")
+        name, value = item.split("=", 1)
+        if not name or value not in ("pass", "fail", "uncertain"):
+            raise SystemExit(f"无效检查项：{item}")
+        checks[name] = value
+    task = manifest.get("task") or {}
+    required = list(a.required_check or task.get("required_checks") or [])
+    validation = manifest.get("validation") or {}
+    technical = validation.get("technical") or manifest.get("technical_validation") or {}
+    technical_status = technical.get("status") or validation.get("technical_status") or "PASS"
+    missing = [name for name in required if checks.get(name) != "pass"]
+    if a.verdict == "pass" and (technical_status == "FAIL" or missing):
+        raise SystemExit("不能 PASS：技术验收失败或必检项未全部 pass：" + ",".join(missing))
+    status = "PASS" if a.verdict == "pass" else ("FAIL" if a.verdict == "fail" else "NEEDS_REVIEW")
+    semantic = {"status": a.verdict.upper(), "checks": checks, "required": required,
+                "output_sha256": output_sha, "technical_status": technical_status}
+    manifest["semantic_validation"] = semantic
+    manifest["review"] = {"verdict": a.verdict, "checks": checks, "required": required,
+                           "output_sha256": output_sha}
+    validation = dict(validation)
+    validation["status"] = status
+    validation["semantic"] = semantic
+    validation["technical_status"] = technical_status
+    manifest["validation"] = validation
+    R.write_manifest(manifest_path, manifest)
+    print(json.dumps({"job": str(target), "verdict": a.verdict, "status": status,
+                      "output_sha256": output_sha, "required": required, "checks": checks},
+                     ensure_ascii=False, indent=2))
+    return 0 if a.verdict == "pass" else (1 if a.verdict == "fail" else 2)
+
+
 def cmd_local(a) -> int:
     argv = [PY, str(LOCAL)] + list(a.rest)
     return _run(argv)
@@ -1027,7 +1208,11 @@ def main() -> int:
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     e = sub.add_parser("edit", help="改图：区域→遮罩→调接口→落盘")
+    e.add_argument("--operation", choices=["edit", "generate"], default="edit")
     e.add_argument("--image", default="")
+    e.add_argument("--prepared-payload", default="")
+    e.add_argument("--task-file", default="")
+    e.add_argument("--sample-id", default="")
     e.add_argument("--plan-file", default="", help="复用 plan --plan-out 生成的本地计划")
     e.add_argument("--prompt", default="", help="要改成的样子（一句话）")
     e.add_argument("--prompt-file", default="")
@@ -1060,7 +1245,11 @@ def main() -> int:
     e.set_defaults(fn=cmd_edit)
 
     pl = sub.add_parser("plan", help="只做本地预检与请求计划，不调用上游")
-    pl.add_argument("--image", required=True)
+    pl.add_argument("--operation", choices=["edit", "generate"], default="edit")
+    pl.add_argument("--image", default="")
+    pl.add_argument("--prepared-payload", default="")
+    pl.add_argument("--task-file", default="")
+    pl.add_argument("--sample-id", default="")
     pl.add_argument("--prompt", default="")
     pl.add_argument("--prompt-file", default="")
     pl.add_argument("--ref", action="append", default=[])
@@ -1110,6 +1299,14 @@ def main() -> int:
 
     d = sub.add_parser("doctor", help="自检（不调接口）")
     d.set_defaults(fn=cmd_doctor)
+
+    rv = sub.add_parser("review", help="登记 Job 的人工语义验收，不发送上游")
+    rv.add_argument("--job", required=True, help="Job 目录或 Job ID")
+    rv.add_argument("--verdict", choices=["pass", "fail", "uncertain"], required=True)
+    rv.add_argument("--check", action="append", default=[], help="逐项检查 name=pass|fail|uncertain")
+    rv.add_argument("--required-check", action="append", default=[], help="必检项名称，可重复")
+    rv.add_argument("--output-sha256", default="", help="可选：显式绑定输出 SHA256")
+    rv.set_defaults(fn=cmd_review)
 
     lo = sub.add_parser("local", help="确定性本地操作（转发 local_ops.py）")
     lo.add_argument("rest", nargs=argparse.REMAINDER)

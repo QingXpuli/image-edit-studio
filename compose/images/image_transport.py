@@ -20,6 +20,13 @@ from pathlib import Path
 
 from PIL import Image
 
+# Cloudflare on some relay hosts (sub.geiliapi.com) returns 1010 for
+# Python-urllib's default User-Agent. Browser UA is enough to pass GET /models.
+BROWSER_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+)
+
 
 @dataclass
 class CallResult:
@@ -33,6 +40,8 @@ class CallResult:
     submit_attempts: int = 0
     retryable_generation: bool = False
     elapsed_s: float = 0.0
+    marker_job: str = "not_requested"
+    marker_shared: str = "not_requested"
     text: str = field(default="", repr=False)
 
     def report(self):
@@ -87,12 +96,16 @@ def private_snapshot(path, text, *, secrets=()):
     atomic_bytes(path, text.encode("utf-8"), private=True)
 
 
-def submission_marker(path):
+def submission_marker(path, *, payload=None):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     with os.fdopen(fd, "wb") as f:
-        f.write(b'POST may have been submitted; never resubmit this job.\n')
+        if payload is None:
+            raw = b'POST may have been submitted; never resubmit this job.\n'
+        else:
+            raw = (json.dumps(payload, sort_keys=True) + "\n").encode("utf-8")
+        f.write(raw)
         f.flush()
         os.fsync(f.fileno())
 
@@ -103,17 +116,52 @@ def post_once(req, *, timeout=900, marker=None, report_path=None, opener=None):
     response = None
     chunks = []
     try:
+        if req.has_header("User-agent") or req.has_header("User-Agent"):
+            pass
+        else:
+            req.add_header("User-Agent", BROWSER_UA)
+        if not req.has_header("Accept"):
+            req.add_header("Accept", "application/json")
         if opener is None:
             opener = urllib.request.build_opener(
                 urllib.request.ProxyHandler({}), NoPostRedirect(),
                 urllib.request.HTTPSHandler(context=ssl.create_default_context()))
+        shared_marker = os.environ.get("ZIMAGE_SUBMISSION_MARKER", "").strip()
         if marker:
+            result.marker_job = "requested"
             try:
                 submission_marker(marker)
+                result.marker_job = "created"
             except FileExistsError:
+                result.marker_job = "existing"
                 result.phase = "submission_guard"
                 result.classification = "submission_already_marked"
                 result.acceptance = "unknown"
+                return result
+            except OSError:
+                result.marker_job = "error"
+                result.phase = "submission_guard"
+                result.classification = "local_error"
+                return result
+        if shared_marker:
+            result.marker_shared = "requested"
+            try:
+                submission_marker(shared_marker, payload={
+                    "state": "sending", "pid": os.getpid(),
+                    "job_marker": str(marker) if marker else None,
+                    "created_at": time.time(),
+                })
+                result.marker_shared = "created"
+            except FileExistsError:
+                result.marker_shared = "existing"
+                result.phase = "submission_guard"
+                result.classification = "shared_submission_already_marked"
+                result.acceptance = "unknown"
+                return result
+            except OSError:
+                result.marker_shared = "error"
+                result.phase = "submission_guard"
+                result.classification = "local_error"
                 return result
         result.phase = "submit"
         write_report(report_path, result)

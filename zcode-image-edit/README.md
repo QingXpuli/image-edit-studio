@@ -42,7 +42,9 @@ $env:RELAY_API_KEY = 'sk-...'                                    # 当前会话
 
 ## AI 主流程与用法
 
-AI 默认负责任务分类、输入图角色分配、提示词编译、预检、提交和结果验收；网页只用于复杂遮罩绘制或画廊，不是默认生成入口。
+AI 默认负责任务分类、输入图角色分配、提示词编译、预检、提交和结果验收；网页只用于复杂遮罩绘制、画布或画廊，不是默认生成入口。先判断能否走 `local`；`prompt_only`、inspect、gallery、dry-run 不发送。身份、内容和配色迁移按用户 scope，且不默认 `input_fidelity=low` 保身份。
+
+> 当前 policy：[`../docs/current-policy.md`](../docs/current-policy.md)。本次仅更新仓库文档与技能，runtime 安装副本未更新；旧 relay 数字仅作历史证据。
 
 ```
 zimage.py doctor                       # 自检，排查第一步（不调接口）
