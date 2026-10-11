@@ -280,5 +280,41 @@
     "url": "https://v4-gateway-v3-2.fycsai.com/v1/images/assets/6069f914-c20d-4d07-b8b8-59e2fa853ac8",
     "status": "done",
     "ts": "2026-10-07 12:15:14"
+  },
+  {
+    "out": "产图\\i2i-gpt-matsuri-hairfix-b.png",
+    "url": "https://v4-gateway-v3-2.fycsai.com/v1/images/assets/095e66f1-2c44-4b5a-97a4-afd5113372bf",
+    "status": "done",
+    "ts": "2026-10-07 16:01:35"
+  },
+  {
+    "out": "C:\\Users\\typ\\Desktop\\mantu\\.zimage\\jobs\\board-20261008-224646\\result.tmp.png",
+    "url": "https://imgen.x.ai/xai-imgen/xai-tmp-imgen-4e306e67-915f-9501-b98e-ed212a39776e-d7bea341.jpeg",
+    "status": "done",
+    "ts": "2026-10-08 22:46:58"
+  },
+  {
+    "out": "C:\\Users\\typ\\Desktop\\mantu\\.zimage\\jobs\\board-20261008-225147\\result.tmp.png",
+    "url": "https://imgen.x.ai/xai-imgen/xai-tmp-imgen-96a993a7-d07b-986a-89cb-64d8d4563f4d-c581b0f5.jpeg",
+    "status": "done",
+    "ts": "2026-10-08 22:51:57"
+  },
+  {
+    "out": "C:\\Users\\typ\\Desktop\\mantu\\.zimage\\jobs\\board-20261008-225213\\result.tmp.png",
+    "url": "https://imgen.x.ai/xai-imgen/xai-tmp-imgen-0e804589-67da-9db3-9296-28527bcf0161-ccb34f42.jpeg",
+    "status": "done",
+    "ts": "2026-10-08 22:52:25"
+  },
+  {
+    "out": "C:\\Users\\typ\\Desktop\\mantu\\.zimage\\jobs\\board-20261008-225317\\result.tmp.png",
+    "url": "https://imgen.x.ai/xai-imgen/xai-tmp-imgen-34ceeaec-dd41-9ed2-a6b7-71d51e828c5e-5695a0d2.jpeg",
+    "status": "done",
+    "ts": "2026-10-08 22:53:28"
+  },
+  {
+    "out": "C:\\Users\\typ\\Desktop\\mantu\\.zimage\\jobs\\board-20261008-230525\\result.tmp.png",
+    "url": "https://imgen.x.ai/xai-imgen/xai-tmp-imgen-8c9fa669-a63b-9691-844c-0d2becbf7ea5-b8d035db.jpeg",
+    "status": "done",
+    "ts": "2026-10-08 23:06:03"
   }
 ]

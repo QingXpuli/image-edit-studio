@@ -43,6 +43,7 @@ import sys
 import tempfile
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -51,6 +52,11 @@ _HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(_HERE.parent.parent / "compose" / "images"))
 import gen as G  # noqa: E402
 import image_transport as T  # noqa: E402
+from image_payload import (  # noqa: E402
+    SCHEMA_PROMPT, PRIMARY_SCHEMA_PROMPT, load_prepared_payload,
+    make_visual_mask, build_mask_alpha, normalise_to_size, prepare_payload,
+    persist_payload,
+)
 from PIL import Image, ImageFilter  # noqa: E402
 
 CHECK = Path.home() / ".agents" / "skills" / "style-distill" / "scripts" / "audit_and_check.py"
@@ -133,6 +139,32 @@ def download(url: str, out: Path, attempts: int = 3, timeout: int = 300) -> None
     out = Path(out)
     if out.exists():
         raise T.ResultError("output_exists")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    if os.environ.get("ZIMAGE_REQUIRE_PUBLIC_DOWNLOAD") == "1":
+        try:
+            from public_fetch import fetch_public_bytes
+        except ImportError:
+            raise T.ResultError("download_unavailable") from None
+        deadline = time.monotonic() + min(max(timeout, 0), 300)
+        last = "download_failed"
+        for i in range(min(max(attempts, 0), 3)):
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            try:
+                raw, _ctype = fetch_public_bytes(url, timeout=min(remaining, 300),
+                                                 max_bytes=100 * 1024 * 1024)
+                fd, tmp = tempfile.mkstemp(prefix=".download-", suffix=".tmp", dir=out.parent)
+                os.close(fd)
+                Path(tmp).write_bytes(raw)
+                T.publish_image(tmp, out)
+                return
+            except T.ResultError:
+                raise
+            except Exception:
+                last = "download_failed"
+            print(f"  GET attempt {i + 1} failed; private recovery record retained", flush=True)
+        raise T.ResultError(last)
     curl = shutil.which("curl.exe") or shutil.which("curl")
     if not curl:
         raise T.ResultError("download_unavailable")
@@ -198,7 +230,8 @@ def note_pending(out_p: Path, url: str, status: str) -> None:
 # ---------- 局部遮罩（把「改图」插件最强的能力搬进命令行）----------
 
 def build_with_mask(content: Image.Image, mask_path: Path, tw: int, th: int, pad: str,
-                    refs: list[Image.Image], invert: bool = False) -> tuple[dict, float]:
+                    refs: list[Image.Image], invert: bool = False,
+                    encode: str = "png", jpg_quality: int = 90) -> tuple[dict, float]:
     """按给定的蒙版做**任意形状的局部改图**。
 
     为什么需要它：命令行此前只有 `gen.py --mode mask --protect x0,y0,x1,y1`——**只能给一个保护矩形**，
@@ -217,7 +250,6 @@ def build_with_mask(content: Image.Image, mask_path: Path, tw: int, th: int, pad
       · 蒙版尺寸不必与内容图一致，会按内容图尺寸重采样；**但内容必须对位**（同一张图的同一块区域）。
     """
     import numpy as np
-    from mask_edit_app import make_visual_mask, build_mask_alpha, normalise_to_size
 
     src = content
     m = Image.open(mask_path)
@@ -237,13 +269,26 @@ def build_with_mask(content: Image.Image, mask_path: Path, tw: int, th: int, pad
     alpha = build_mask_alpha(pad_paint)
 
     fit = normalise_to_size(src, tw, th, pad)
-    b = io.BytesIO(); fit.save(b, "PNG", optimize=True)
-    files = {"image": ("image.png", b.getvalue(), "image/png"),
-             "image[1]": ("mask_ref.png", vis_png, "image/png"),
+    # JPEG keeps the two full-size mask-path images under the 1.96 MiB feed
+    # limit at 1024x1536 (PNG pair measured 2.46 MiB -> refused before POST).
+    def _encode(img: Image.Image, name: str):
+        buf = io.BytesIO()
+        if encode == "jpg":
+            img.convert("RGB").save(buf, "JPEG", quality=max(1, min(100, int(jpg_quality))), optimize=True)
+            return (f"{name}.jpg", buf.getvalue(), "image/jpeg")
+        if encode != "png":
+            raise SystemExit(f"encode must be png or jpg, got {encode!r}")
+        img.save(buf, "PNG", optimize=True)
+        return (f"{name}.png", buf.getvalue(), "image/png")
+
+    image_item = _encode(fit, "image")
+    red_img = Image.open(io.BytesIO(vis_png))
+    red_item = _encode(red_img, "mask_ref")
+    files = {"image": image_item,
+             "image[1]": red_item,
              "mask": ("mask.png", alpha, "image/png")}
     for i, r in enumerate(refs, start=2):
-        rb = io.BytesIO(); normalise_to_size(r, tw, th, pad).save(rb, "PNG", optimize=True)
-        files[f"image[{i}]"] = (f"ref{i}.png", rb.getvalue(), "image/png")
+        files[f"image[{i}]"] = _encode(normalise_to_size(r, tw, th, pad), f"ref{i}")
     return files, float(pad_paint.mean()) * 100
 
 
@@ -397,6 +442,44 @@ def recover_result(snapshot, out_p, report, check_target=None):
 
 
 # ---------- 单轮 ----------
+def _run_prepared(prepared_path: Path, out_p: Path, quality: str, model: str,
+                  dry_run: bool, b64_result: bool, transport_report: Path,
+                  snapshot: Path, marker: Path, no_download: bool, check_target,
+                  expected_operation: str = "edit") -> int:
+    """Send frozen bytes directly; no source image read or payload rebuilding."""
+    try:
+        prepared = load_prepared_payload(prepared_path)
+        if expected_operation and prepared.operation != expected_operation:
+            raise ValueError("prepared operation mismatch")
+    except (OSError, ValueError, TypeError, KeyError) as exc:
+        result = T.CallResult(classification="prepared_payload_invalid")
+        T.write_report(transport_report, result)
+        print(f"FAILED: prepared_payload_invalid ({exc})", flush=True)
+        return 1
+    total = prepared.total_bytes
+    print(f"  prepared payload: {prepared_path} bytes={total} slots={prepared.slots}", flush=True)
+    if prepared.preview_bytes is not None:
+        print(f"  preview bytes={len(prepared.preview_bytes)} coverage={prepared.coverage}", flush=True)
+    if prepared.normalization_warnings:
+        print("  warnings: " + " | ".join(prepared.normalization_warnings), flush=True)
+    if dry_run:
+        print("  dry-run: not sent", flush=True)
+        return 0
+    result = G.call_structured(prepared.fields, prepared.files, key=G.key_for(quality),
+                               marker=marker, report_path=transport_report,
+                               operation=prepared.operation, endpoint=prepared.endpoint)
+    if result.classification != "response_complete":
+        print("FAILED: " + result.classification, flush=True)
+        return 1
+    try:
+        T.private_snapshot(snapshot, result.text, secrets=(G.KEY, G.KEY_HD))
+    except OSError:
+        return 1
+    rc = receive_result(result, out_p, transport_report, no_download=no_download)
+    if rc or no_download:
+        return rc
+    return check_result(out_p, check_target)
+
 
 def _run_one(content_p: Path, refs_p: list[Path], prompt_p: Path, out_p: Path,
             tw: int, th: int, pad: str, quality: str, budget: int, check_target: str | None,
@@ -404,7 +487,8 @@ def _run_one(content_p: Path, refs_p: list[Path], prompt_p: Path, out_p: Path,
             mask_invert: bool = False, mask_primary: bool = False,
             encode: str = "png", jpg_quality: int = 90, no_download: bool = False,
             b64_result: bool = True, transport_report=None, snapshot=None,
-            marker=None, recover_from=None, input_fidelity: str = "") -> int:
+            marker=None, recover_from=None, input_fidelity: str = "", prepared_payload=None,
+            operation: str = "edit") -> int:
     transport_report = transport_report or Path(str(out_p) + ".transport.json")
     snapshot = snapshot or Path(str(out_p) + ".response.private.json")
     marker = marker or Path(str(out_p) + ".submission")
@@ -416,6 +500,32 @@ def _run_one(content_p: Path, refs_p: list[Path], prompt_p: Path, out_p: Path,
         initial.classification = "output_exists"
         T.write_report(transport_report, initial)
         return 1
+    if prepared_payload:
+        return _run_prepared(Path(prepared_payload), out_p, quality, model or G.MODEL,
+                             dry_run, b64_result, transport_report, snapshot, marker,
+                             no_download, check_target, expected_operation=operation)
+    if operation == "generate":
+        prompt = prompt_p.read_text(encoding="utf-8").strip()
+        prepared = prepare_payload(None, [], prompt, f"{tw}x{th}", pad, quality,
+                                   model or G.MODEL, operation="generate",
+                                   input_fidelity=input_fidelity,
+                                   response_format="b64_json" if b64_result else None)
+        total = prepared.total_bytes
+        print(f"  generate payload: bytes={total} slots={prepared.slots}", flush=True)
+        if dry_run:
+            print("  dry-run: not sent", flush=True)
+            return 0
+        result = G.call_structured(prepared.fields, prepared.files, key=G.key_for(quality),
+                                   marker=marker, report_path=transport_report,
+                                   operation="generate", endpoint=prepared.endpoint)
+        if result.classification != "response_complete":
+            print("FAILED: " + result.classification, flush=True)
+            return 1
+        T.private_snapshot(snapshot, result.text, secrets=(G.KEY, G.KEY_HD))
+        rc = receive_result(result, out_p, transport_report, no_download=no_download)
+        if rc or no_download:
+            return rc
+        return check_result(out_p, check_target)
     content = Image.open(content_p).convert("RGB")
     refs = [Image.open(p).convert("RGB") for p in refs_p]
     prompt = prompt_p.read_text(encoding="utf-8").strip()
@@ -446,13 +556,20 @@ def _run_one(content_p: Path, refs_p: list[Path], prompt_p: Path, out_p: Path,
     note = "（局部改图模式，蒙版不参与压缩梯子）"
     if mask_p:
         # 局部改图：蒙版本身不参与压缩梯子（它不含视觉信息），只报它的覆盖率
-        files, cov = build_with_mask(content, mask_p, tw, th, pad, refs, invert=mask_invert)
+        files, cov = build_with_mask(content, mask_p, tw, th, pad, refs, invert=mask_invert,
+                                     encode=encode, jpg_quality=jpg_quality)
         vis_bytes = files["image[1]"][1]
         if mask_primary:
-            # 实验：把涂红图当**主图**送（不发干净原图）。机制：抽掉"照抄原图把它恢复"的路径，
-            # 顺带把体积砍半（少一张全尺寸图）。若有效则体积门禁问题一并解决。
-            files = {"image": ("image.png", vis_bytes, "image/png"),
-                     "mask": files["mask"]}
+            # 主图即涂红图；保留 mask，并把所有 refs 紧接着放入 image[1..]。
+            # 不能丢参考图：它们承担身份/风格条件。
+            primary_files = {"image": ("image.png", vis_bytes, "image/png"),
+                             "mask": files["mask"]}
+            for i, ref_path in enumerate(refs_p, start=1):
+                ref_img = Image.open(ref_path).convert("RGB")
+                rb = io.BytesIO()
+                normalise_to_size(ref_img, tw, th, pad).save(rb, "PNG", optimize=True)
+                primary_files[f"image[{i}]"] = (f"ref{i}.png", rb.getvalue(), "image/png")
+            files = primary_files
         total = sum(len(v[1]) for v in files.values())
         mode = ("反向：蒙版里涂过的区域**被保留**，其余整张可改" if mask_invert
                 else "正向：蒙版里涂过的区域**被修改**，其余像素物理不动")
@@ -529,11 +646,18 @@ def _run_one(content_p: Path, refs_p: list[Path], prompt_p: Path, out_p: Path,
     # 不是靠自动前置——这个隐含前提在做成工具时被丢掉了。
     send_prompt = prompt
     if mask_p:
-        from mask_edit_app import SCHEMA_PROMPT      # 与 gen.py 同一个来源，避免两处文案漂移
-        send_prompt = SCHEMA_PROMPT + prompt
+        prefix = PRIMARY_SCHEMA_PROMPT if mask_primary else SCHEMA_PROMPT
+        if not send_prompt.startswith(prefix):
+            send_prompt = prefix + send_prompt
 
     fields = {"model": model or G.MODEL, "prompt": send_prompt, "n": "1",
-              "size": f"{tw}x{th}", "quality": quality}
+              "size": f"{tw}x{th}"}
+    grok = "grok" in str(fields["model"]).lower()
+    if grok:
+        # Web engine: Grok rejects OpenAI `quality`; resolution 1k/2k drives size.
+        fields["resolution"] = "2k" if max(tw, th) >= 1536 else "1k"
+    else:
+        fields["quality"] = quality
     if input_fidelity:
         # 2026-10-06 定稿：画风迁移必带（low＝参考图只取画风不保留内容）。
         # 由调用方显式传入，缺省不带以保持与旧行为兼容。
@@ -606,6 +730,8 @@ def run_one(*args, **kwargs):
 def main() -> int:
     ap = argparse.ArgumentParser(description="一轮作业一键跑")
     ap.add_argument("--content", default="")
+    ap.add_argument("--operation", choices=["edit", "generate"], default="edit")
+    ap.add_argument("--prepared-payload", default="")
     ap.add_argument("--ref", action="append", default=[], help="可多次；顺序即 image[1]、image[2]…")
     ap.add_argument("--prompt", action="append", default=[])
     ap.add_argument("--out", action="append", required=True)
@@ -660,18 +786,23 @@ def main() -> int:
         return recover_result(Path(a.recover_from), Path(a.out[0]),
                               Path(report) if report else Path(a.out[0] + ".transport.json"),
                               a.check_target or None)
-    if not a.content or len(a.prompt) != len(a.out):
+    if a.operation == "generate":
+        if len(a.prompt) != len(a.out):
+            raise SystemExit("generate requires matching --prompt/--out")
+    elif not a.content or len(a.prompt) != len(a.out):
         raise SystemExit("--content and matching --prompt/--out are required")
     if len(a.out) != 1 and (report or a.snapshot or a.recover_from):
         raise SystemExit("Explicit report/snapshot/recovery requires a single output")
     tw, th = (int(v) for v in a.size.split("x"))
     budget = int(a.budget_mib * 1048576)
     mask_p = Path(a.mask) if a.mask else None
+    if a.prepared_payload and len(a.out) != 1:
+        raise SystemExit("--prepared-payload requires one output")
     if mask_p and not mask_p.exists():
         raise SystemExit(f"--mask 指定的文件不存在：{mask_p}")
 
     jobs = [(Path(a.content), [Path(r) for r in a.ref], Path(p), Path(o))
-            for p, o in zip(a.prompt, a.out)]
+            for p, o in zip(a.prompt, a.out)] if a.operation != "generate" else [(None, [], Path(p), Path(o)) for p, o in zip(a.prompt, a.out)]
 
     if len(jobs) == 1 or a.concurrency <= 1:
         rc = 0
@@ -685,7 +816,8 @@ def main() -> int:
                           transport_report=Path(report) if report else None,
                           snapshot=Path(a.snapshot) if a.snapshot else None,
                           recover_from=Path(a.recover_from) if a.recover_from else None,
-                          input_fidelity=a.input_fidelity)
+                          input_fidelity=a.input_fidelity, prepared_payload=a.prepared_payload,
+                          operation=a.operation)
         return rc
 
     print(f"并行发送 {len(jobs)} 个方案（并发 {a.concurrency}）", flush=True)
@@ -696,7 +828,7 @@ def main() -> int:
             futs.append(ex.submit(run_one, c, r, p, o, tw, th, a.pad, a.quality, budget,
                                   a.check_target or None, mask_p, a.model, a.dry_run, a.ask,
                                   a.mask_invert, a.mask_primary, a.encode, a.jpg_quality, a.no_download, not a.url_result,
-                                  None, None, None, None, a.input_fidelity))
+                                  None, None, None, None, a.input_fidelity, a.prepared_payload, a.operation))
         return max(f.result() for f in futs)
 
 

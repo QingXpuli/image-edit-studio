@@ -12,6 +12,7 @@
   crop-to        裁成目标比例（可选锚点与显式裁剪带，用于"别把人脸切掉"）
   contact-sheet  多图拼版对照（等高并排，可加等分参考线）
   tone-report    调子剖面（转发 round_lib/tone_report.py）
+  degrain        水彩砂粒/斑驳：丢掉各向同性颗粒，发丝窗框等定向结构留下（不调接口）
 
 每个子命令都带**自检**：写出后校验能否完整解码、并报告实际改动范围。
 """
@@ -41,6 +42,13 @@ LIGHTEN = dict(t_dark=0.50, k_close=5, k_open=13, k_dilate=7, t_line=0.35)
 LEVELS = {"light": 0.20, "medium": 0.34, "strong": 0.50}
 # ---- 放大的锐化参数 ----
 UPSCALE = dict(sharpen=0.55, radius=2.0)
+# ---- 水彩去砂：频率分流参数（2026-10-09 实测：medium 发丝梯度保留 94%，平坦区高频约减半；
+# 整幅双边/保边滤波会把发丝一起糊掉，故不用）----
+DEGRAIN = {
+    "light": dict(sigma_mid=1.6, sigma_low=7.0, blotch=0.35, grain=0.85, sharp=0.18),
+    "medium": dict(sigma_mid=1.8, sigma_low=8.0, blotch=0.55, grain=0.92, sharp=0.22),
+    "strong": dict(sigma_mid=2.1, sigma_low=9.0, blotch=0.72, grain=0.96, sharp=0.20),
+}
 
 
 def _open(p: Path) -> Image.Image:
@@ -180,6 +188,124 @@ def cmd_tone_report(a) -> int:
     return subprocess.call(cmd)
 
 
+def _gauss(img: np.ndarray, sigma: float) -> np.ndarray:
+    if sigma <= 0:
+        return img.astype(np.float32)
+    return cv2.GaussianBlur(img.astype(np.float32), (0, 0), sigma)
+
+
+def _sobel_mag(g: np.ndarray):
+    gx = cv2.Sobel(g, cv2.CV_32F, 1, 0, ksize=3)
+    gy = cv2.Sobel(g, cv2.CV_32F, 0, 1, ksize=3)
+    return gx, gy, np.hypot(gx, gy)
+
+
+def _structure_keep(gray: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """定向结构掩膜：发丝/窗框/衣褶为 1，各向同性砂粒为 0。"""
+    gx, gy, mag = _sobel_mag(gray)
+    rho, rho_m = 2.2, 5.0
+    jxx = _gauss(gx * gx, rho)
+    jxy = _gauss(gx * gy, rho)
+    jyy = _gauss(gy * gy, rho)
+    tmp = np.sqrt(np.maximum((jxx - jyy) ** 2 + 4.0 * jxy * jxy, 0))
+    mu1 = 0.5 * (jxx + jyy + tmp)
+    mu2 = 0.5 * (jxx + jyy - tmp)
+    coh = (mu1 - mu2) / (mu1 + mu2 + 1e-6)
+    vx = jxy
+    vy = mu1 - jxx
+    n = np.sqrt(vx * vx + vy * vy) + 1e-8
+    vx, vy = vx / n, vy / n
+    along = np.zeros_like(gray)
+    across = np.zeros_like(gray)
+    yy, xx = np.indices(gray.shape)
+    half, count = 6, 0
+    for t in range(-half, half + 1):
+        if t == 0:
+            continue
+        count += 1
+        xa = np.clip(np.rint(xx + t * vx).astype(np.int32), 0, gray.shape[1] - 1)
+        ya = np.clip(np.rint(yy + t * vy).astype(np.int32), 0, gray.shape[0] - 1)
+        xb = np.clip(np.rint(xx + t * (-vy)).astype(np.int32), 0, gray.shape[1] - 1)
+        yb = np.clip(np.rint(yy + t * vx).astype(np.int32), 0, gray.shape[0] - 1)
+        along += np.abs(gray[ya, xa] - gray)
+        across += np.abs(gray[yb, xb] - gray)
+    persist = (across / count) / (along / count + 1.0)
+    ves = np.zeros_like(gray)
+    for sigma in (0.8, 1.2, 1.8, 2.5):
+        k = max(3, int(round(sigma * 6)) | 1)
+        gs = cv2.GaussianBlur(gray, (k, k), sigma)
+        lx = cv2.Sobel(gs, cv2.CV_32F, 1, 0, ksize=3)
+        ly = cv2.Sobel(gs, cv2.CV_32F, 0, 1, ksize=3)
+        lxx = cv2.Sobel(lx, cv2.CV_32F, 1, 0, ksize=3) * (sigma ** 2)
+        lxy = cv2.Sobel(lx, cv2.CV_32F, 0, 1, ksize=3) * (sigma ** 2)
+        lyy = cv2.Sobel(ly, cv2.CV_32F, 0, 1, ksize=3) * (sigma ** 2)
+        dt = np.sqrt(np.maximum((lxx - lyy) ** 2 + 4 * lxy * lxy, 0))
+        a1 = 0.5 * (lxx + lyy + dt)
+        a2 = 0.5 * (lxx + lyy - dt)
+        swap = np.abs(a1) > np.abs(a2)
+        lam1 = np.where(swap, a2, a1)
+        lam2 = np.where(swap, a1, a2)
+        rb = np.abs(lam1) / (np.abs(lam2) + 1e-6)
+        s = np.sqrt(lam1 * lam1 + lam2 * lam2)
+        cc = float(np.percentile(s, 90) * 0.5 + 1e-6)
+        v = np.exp(-(rb ** 2) / (2 * 0.5 * 0.5)) * (1.0 - np.exp(-(s ** 2) / (2 * cc * cc)))
+        ves = np.maximum(ves, v)
+    ves = ves / (float(ves.max()) + 1e-6)
+    fine = np.clip(coh, 0, 1) * np.clip((persist - 0.45) / 0.55, 0, 1)
+    fine = np.maximum(fine, ves)
+    fine = np.clip(fine * np.clip(mag / 16.0, 0, 1), 0, 1)
+    fine = np.maximum(fine, 0.65 * cv2.dilate(fine, np.ones((3, 3), np.uint8)))
+    jxx_m = _gauss(gx * gx, rho_m)
+    jxy_m = _gauss(gx * gy, rho_m)
+    jyy_m = _gauss(gy * gy, rho_m)
+    tmp_m = np.sqrt(np.maximum((jxx_m - jyy_m) ** 2 + 4.0 * jxy_m * jxy_m, 0))
+    mu1_m = 0.5 * (jxx_m + jyy_m + tmp_m)
+    mu2_m = 0.5 * (jxx_m + jyy_m - tmp_m)
+    coh_m = (mu1_m - mu2_m) / (mu1_m + mu2_m + 1e-6)
+    energy_m = np.sqrt(np.maximum(mu1_m, 0))
+    mid = np.clip((coh_m - 0.35) / 0.50, 0, 1) * np.clip(energy_m / 12.0, 0, 1)
+    mid = np.maximum(mid, np.clip((mag - 22) / 40, 0, 1))
+    return fine.astype(np.float32), mid.astype(np.float32)
+
+
+def cmd_degrain(a) -> int:
+    """频率分流去砂：低频色块全留；中频斑驳/高频砂只在定向结构上加回。"""
+    src, out = Path(a.src), Path(a.out)
+    im = _open(src)
+    bgr = cv2.cvtColor(np.asarray(im), cv2.COLOR_RGB2BGR).astype(np.float32)
+    gray = cv2.cvtColor(np.asarray(im), cv2.COLOR_RGB2GRAY).astype(np.float32)
+    p = DEGRAIN[a.level]
+    fine, mid = _structure_keep(gray)
+    low = _gauss(bgr, p["sigma_low"])
+    midb = _gauss(bgr, p["sigma_mid"])
+    mid_band = midb - low
+    high = bgr - midb
+    blotch, grain, sharp = p["blotch"], p["grain"], p["sharp"]
+    mid_out = mid_band * ((1.0 - blotch) + blotch * mid[..., None])
+    high_out = high * ((1.0 - grain) + grain * fine[..., None])
+    res = low + mid_out + high_out
+    if sharp > 0:
+        res = res + sharp * (res - _gauss(res, 0.75)) * fine[..., None]
+    res_u8 = np.clip(res, 0, 255).astype(np.uint8)
+    out_im = Image.fromarray(cv2.cvtColor(res_u8, cv2.COLOR_BGR2RGB))
+
+    gx0, gy0, mag0 = _sobel_mag(gray)
+    g1 = cv2.cvtColor(res_u8, cv2.COLOR_BGR2GRAY).astype(np.float32)
+    _, _, mag1 = _sobel_mag(g1)
+    hf0 = np.abs(gray - _gauss(gray, 1.2))
+    hf1 = np.abs(g1 - _gauss(g1, 1.2))
+    flat = mag0 < np.percentile(mag0, 40)
+    hair = (fine > 0.55) & (mag0 > np.percentile(mag0, 80))
+    edge = mag0 > np.percentile(mag0, 85)
+    mse = float(np.mean((g1 - gray) ** 2))
+    print(f"  档位 {a.level}  定向结构 {fine.mean()*100:.1f}%  中频结构 {mid.mean()*100:.1f}%")
+    print(f"  平坦区高频 {hf0[flat].mean():.3f} → {hf1[flat].mean():.3f}（砂应下降）")
+    print(f"  发丝区梯度保留 {mag1[hair].mean()/(mag0[hair].mean()+1e-6):.3f}  "
+          f"强边保留 {mag1[edge].mean()/(mag0[edge].mean()+1e-6):.3f}  MSE {mse:.2f}")
+    _save_verify(out_im, out)
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="确定性图像操作（不调接口）")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -215,6 +341,11 @@ def main() -> int:
     p = sub.add_parser("tone-report", help="调子剖面（转发 tone_report.py）")
     p.add_argument("images", nargs="+"); p.add_argument("--ref", default="")
     p.set_defaults(fn=cmd_tone_report)
+
+    p = sub.add_parser("degrain", help="水彩砂粒/斑驳：定向结构留下，各向同性颗粒丢掉")
+    p.add_argument("src"); p.add_argument("-o", "--out", required=True)
+    p.add_argument("--level", choices=list(DEGRAIN), default="medium")
+    p.set_defaults(fn=cmd_degrain)
 
     a = ap.parse_args()
     return a.fn(a)
