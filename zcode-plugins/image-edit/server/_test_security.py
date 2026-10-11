@@ -186,17 +186,17 @@ class HandlerTests(unittest.TestCase):
                 self.assertEqual(status, 400)
                 upstream.assert_not_called()
 
-    def test_save_preserves_local_key_but_not_env(self):
-        app.USER_LOCAL.write_text(json.dumps({"base_url": "https://relay.invalid/v1", "api_key": SENTINEL}))
+    def test_save_defaults_disabled_existing_credentials_unchanged(self):
+        original = json.dumps({"base_url": "https://relay.invalid/v1", "api_key": SENTINEL}).encode()
+        app.USER_LOCAL.write_bytes(original)
         headers = {"Content-Type": "application/json", "X-Image-Edit-Local": "1"}
         try:
-            status, body = self.request("POST", "/api/save-defaults", json.dumps({"base_url": "https://relay.invalid", "api_key": "", "model": "test"}), headers)
-            self.assertEqual(status, 200)
-            self.assertNotIn(SENTINEL, json.dumps(body))
-            self.assertEqual(json.loads(app.USER_LOCAL.read_text())["api_key"], SENTINEL)
-            status, _ = self.request("POST", "/api/save-defaults", json.dumps({"base_url": "https://other.invalid"}), headers)
-            self.assertEqual(status, 200)
-            self.assertNotIn("api_key", json.loads(app.USER_LOCAL.read_text()))
+            for base in ("https://relay.invalid", "https://other.invalid"):
+                status, body = self.request("POST", "/api/save-defaults", json.dumps({"base_url": base, "api_key": "new-value", "model": "test"}), headers)
+                self.assertEqual(status, 409)
+                self.assertFalse(body["ok"])
+                self.assertNotIn(SENTINEL, json.dumps(body))
+                self.assertEqual(app.USER_LOCAL.read_bytes(), original)
         finally:
             app.USER_LOCAL.unlink(missing_ok=True)
 

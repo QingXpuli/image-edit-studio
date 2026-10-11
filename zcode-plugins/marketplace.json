@@ -1,0 +1,16 @@
+{
+  "name": "dev-mantu-images",
+  "plugins": [
+    {
+      "name": "image-edit",
+      "source": "./image-edit",
+      "version": "0.1.4",
+      "description": "Optional manual canvas; image generation delegates to the zimage project executor.",
+      "displayName": "Image Edit Canvas",
+      "displayName_i18n": {
+        "zh-CN": "手涂改图画布"
+      },
+      "category": "utilities"
+    }
+  ]
+}

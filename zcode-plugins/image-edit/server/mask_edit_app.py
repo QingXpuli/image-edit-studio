@@ -822,303 +822,77 @@ class Handler(BaseHTTPRequestHandler):
         self._json(200, {"ok": status == 200, "status": status, "models": ids, "raw_error": None if status == 200 else parsed})
 
     def _api_edit(self) -> None:
-        ctype = self.headers.get("Content-Type") or ""
-        body = self._read_body()
-        fields, files = parse_multipart(ctype, body)
-        log("edit fields=%s files=%s" % (redact(fields), [(f["name"], f["filename"], len(f["data"])) for f in files]))
-
+        fields, files = parse_multipart(self.headers.get("Content-Type") or "", self._read_body())
         local = load_local_config()
         base, key = resolve_credentials(fields)
-        engine_id = (fields.get("engine") or "gpt").strip() or "gpt"
-        engine = ENGINES.get(engine_id) or ENGINES["gpt"]
-        model = (fields.get("model") or local.get("model") or engine.get("i2i_model") or "gpt-image-2").strip()
-        prompt = (fields.get("prompt") or "").strip()
-        size_text = (fields.get("size") or "1024x1024").strip()
-        quality = (fields.get("quality") or "high").strip()
-        resolution = (fields.get("resolution") or "").strip()
-        pad_mode = (fields.get("pad_mode") or "fit").strip()
-        mask_mode = (fields.get("mask_mode") or "paint_edit").strip()
-        scope = (fields.get("scope") or "mask").strip()
-        operation = (fields.get("operation") or "edit").strip()
-        try:
-            count = max(1, min(4, int(fields.get("count") or "1")))
-        except ValueError:
-            count = 1
-        output_format = (fields.get("output_format") or "png").strip().lower()
-        if output_format not in ("png", "jpeg", "webp"):
-            output_format = "png"
-
-        if not base or not key:
-            self._json(400, {"ok": False, "error": "需要 Base URL 和 API Key（只在本机页面填写，不会写入插件）"})
-            return
-        if not prompt:
-            self._json(400, {"ok": False, "error": "缺少提示词"})
-            return
-
         contents = files_by_name(files, "content", "image", "images")
         masks = files_by_name(files, "mask", "masks")
-        refs = files_by_name(files, "ref", "reference", "refs")
-        if operation != "generate":
-            # 文生图不需要内容图；改图才需要。
-            if not contents:
-                self._json(400, {"ok": False, "error": "请先选一张内容图"})
-                return
-            if not engine.get("multi_image") and (len(contents) + len(refs)) > 1:
-                self._json(400, {"ok": False, "error": "当前引擎不接受多张参考图"})
-                return
-
-        invert = mask_mode in ("invert", "keep", "paint_keep", "reverse")
-        use_mask = scope in ("mask", "masked", "inpaint") and bool(engine.get("mask")) and operation != "generate"
-        target = parse_size(size_text)
-
-        painted: list[Image.Image] = []
-        extras: list[Image.Image] = []
-        for i, item in enumerate(contents):
-            try:
-                im = open_image(item["data"])
-            except Exception as e:
-                self._json(400, {"ok": False, "error": "内容图无法读取: %s" % e})
-                return
-            mask_im = None
-            if i < len(masks) and masks[i]["data"]:
-                try:
-                    mask_im = open_image(masks[i]["data"])
-                except Exception as e:
-                    self._json(400, {"ok": False, "error": "遮罩无法读取: %s" % e})
-                    return
-            im2, mask2 = resize_pair(im, mask_im, target, pad_mode)
-            if use_mask and mask2 is not None:
-                binary = mask_to_binary(mask2, invert=invert)
-                if binary.getextrema()[1] == 0:
-                    self._json(400, {"ok": False, "error": "遮罩是空的。请在图上涂抹要改的区域（或改用整图重画）。"})
-                    return
-                painted.append(paint_red(im2, mask2, invert=invert))
-            else:
-                extras.append(im2)
-
-        if use_mask and not painted:
-            self._json(400, {"ok": False, "error": "仅遮罩区模式需要一张遮罩。请在图上涂抹要改的区域。"})
+        references = files_by_name(files, "ref", "reference", "refs")
+        operation = "generate" if fields.get("operation") == "generate" else "edit"
+        if len(contents) > 1:
+            self._json(400, {"ok": False, "error": "一次改图使用一张身份图；其他图片请放参考槽。"})
             return
-
-        ref_images: list[Image.Image] = []
-        for item in refs:
-            try:
-                rim = open_image(item["data"])
-            except Exception as e:
-                self._json(400, {"ok": False, "error": "参考图无法读取: %s" % e})
-                return
-            rim2, _ = resize_pair(rim, None, target, pad_mode)
-            ref_images.append(rim2)
-
-        # 仅遮罩区：只发涂红图 + 参考图，不发干净原图（否则模型会把红区「恢复」回去）。
-        # 整图：发原图（已缩放到目标尺寸）+ 参考图，不涂红。
-        send_images: list[Image.Image] = []
-        if use_mask:
-            send_images.extend(painted)
-            send_images.extend(ref_images)
-        else:
-            send_images.extend(extras)
-            send_images.extend(ref_images)
-
-        blobs: list[tuple[str, str, bytes, str]] = []
-        total = 0
-        for idx, im in enumerate(send_images):
-            data, q = encode_jpeg(im)
-            total += len(data)
-            field = "image" if idx == 0 else "image[%d]" % idx
-            blobs.append((field, "image%d.jpg" % idx, data, "image/jpeg"))
-            log("feed %s jpeg q=%d bytes=%d size=%s" % (field, q, len(data), im.size))
-        if total > 2_100_000:
-            self._json(
-                400,
-                {
-                    "ok": False,
-                    "error": "投喂体积约 %.2f MiB，中转站大约 1.96 MiB 起可能拒收。请降低分辨率或少加参考图。"
-                    % (total / 1024 / 1024),
-                },
+        try:
+            count = int(fields.get("count") or "1")
+            if not 1 <= count <= 4:
+                raise ValueError("count")
+        except ValueError:
+            self._json(400, {"ok": False, "error": "生成数量须为 1–4。"})
+            return
+        workspace = Path(os.environ.get("ZIMAGE_ROOT") or Path(__file__).resolve().parents[3])
+        adapter_path = workspace / "compose" / "images"
+        if not (workspace / "zcode-image-edit" / "bin" / "zimage.py").is_file():
+            self._json(400, {"ok": False, "error": "请配置 ZIMAGE_ROOT 为包含 zimage.py 的项目目录。"})
+            return
+        sys.path.insert(0, str(adapter_path))
+        from image_cli_adapter import execute_image_request
+        engine = ENGINES.get(fields.get("engine") or "gpt", ENGINES["gpt"])
+        whole = fields.get("scope") not in ("mask", "masked", "inpaint") or operation == "generate"
+        if not whole and not engine["mask"]:
+            self._json(400, {"ok": False, "error": "该引擎不支持遮罩。"})
+            return
+        if not whole and not masks:
+            self._json(400, {"ok": False, "error": "局部编辑需要遮罩。"})
+            return
+        output_format = fields.get("output_format") or "png"
+        request_sample = str(fields.get("request_id") or "").strip() if count > 1 else ""
+        if count > 1 and (not request_sample or not re.fullmatch(r"[A-Za-z0-9-]{8,80}", request_sample)):
+            self._json(400, {"ok": False, "error": "多张采样需要稳定请求编号，避免未知受理后重复扣费。"})
+            return
+        requested_quality = fields.get("quality") or "low"
+        if requested_quality == "auto":
+            short = min(parse_size(fields.get("size") or "1024x1024"))
+            requested_quality = "low" if short <= 1024 else ("medium" if short <= 2048 else "high")
+        images, jobs = [], []
+        result = {}
+        for index in range(count):
+            result = execute_image_request(
+                prompt=fields.get("prompt") or "", source=contents[0]["data"] if contents else None,
+                refs=[("reference", item["data"]) for item in references],
+                mask=masks[0]["data"] if masks and not whole else None,
+                protect=fields.get("mask_mode") in ("invert", "keep", "paint_keep", "reverse"),
+                size=fields.get("size") or "1024x1024", quality=requested_quality,
+                model=fields.get("model") or local.get("model") or engine["i2i_model"],
+                base_url=base, api_key=key, pad="crop" if fields.get("pad_mode") == "crop" else "pad",
+                operation=operation, input_fidelity=fields.get("input_fidelity") or "",
+                output_format=output_format, sample_id=f"{request_sample}-{index}" if request_sample else "",
             )
-            return
-
-        final_prompt = prompt
-        if use_mask:
-            final_prompt = prompt.rstrip("。.") + "。" + RED_PROMPT
-
-        up_fields: dict[str, str] = {
-            "model": model,
-            "prompt": final_prompt,
-            "size": size_text,
-            "n": str(count),
-        }
-        if engine.get("uses_quality") and quality and quality != "auto":
-            up_fields["quality"] = quality
-        if engine.get("uses_resolution") and resolution:
-            up_fields["resolution"] = resolution
-        if output_format != "png":
-            up_fields["output_format"] = output_format
-
-        payload, content_type = build_multipart(up_fields, blobs)
-        url = join_url(base, "/images/edits" if operation != "generate" else "/images/generations")
-        if operation == "generate":
-            gen_fields = dict(up_fields)
-            payload, content_type = build_multipart(gen_fields, [])
-            content_type = "application/json"
-            payload = json.dumps(gen_fields).encode("utf-8")
-
-        status, parsed, text = http_json("POST", url, key, body=payload, content_type=content_type, timeout=UPSTREAM_TIMEOUT)
-        if status != 200:
-            log("edit upstream status=%s" % status)
-        if status == 502:
-            self._json(
-                200,
-                {
-                    "ok": False,
-                    "status": 502,
-                    "retry": False,
-                    "error": "上游返回 502，受理状态可能未知；请先核对任务或账单，不要直接重复生成。",
-                    "upstream": parsed,
-                },
-            )
-            return
-        if status != 200:
-            self._json(200, {"ok": False, "status": status, "error": parsed or text, "retry": False})
-            return
-
-        # Collect every returned image; upstreams answer with data[] for n>1.
-        raw_items: list[tuple[str, str]] = []
-        if isinstance(parsed, dict):
-            data = parsed.get("data")
-            if isinstance(data, list):
-                for item in data:
-                    if isinstance(item, dict):
-                        b = item.get("b64_json") or item.get("b64")
-                        u = item.get("url")
-                        if b:
-                            raw_items.append(("b64", str(b)))
-                        elif u:
-                            raw_items.append(("url", str(u)))
-            if not raw_items:
-                b = parsed.get("b64_json") or parsed.get("b64")
-                u = parsed.get("url")
-                if b:
-                    raw_items.append(("b64", str(b)))
-                elif u:
-                    raw_items.append(("url", str(u)))
-        if not raw_items:
-            log("edit upstream 200 without images")
-            self._json(200, {"ok": False, "status": status, "error": "上游没有 b64_json 也没有可用 url", "upstream": parsed})
-            return
-
-        images: list[dict[str, str]] = []
-        for kind, val in raw_items[:4]:
-            b64 = val
-            if kind == "url":
-                try:
-                    raw_img, _mime = fetch_public_bytes(val, timeout=60)
-                    b64 = base64.b64encode(raw_img).decode("ascii")
-                except Exception:
-                    log("edit result download failed")
-                    continue
-            try:
-                out_im = open_image(base64.b64decode(b64))
-                dims = "%dx%d" % out_im.size
-            except Exception:
-                dims = ""
-            images.append({"b64": b64, "size": dims})
-        if not images:
-            self._json(200, {"ok": False, "status": status, "error": "上游返回了图片但本机下载/解析失败", "upstream": parsed})
-            return
-        mime = {"png": "image/png", "jpeg": "image/jpeg", "webp": "image/webp"}[output_format]
-        self._json(
-            200,
-            {
-                "ok": True,
-                "status": 200,
-                "b64": images[0]["b64"],
-                "images": images,
-                "mime": mime,
-                "requested_size": size_text,
-                "actual_size": images[0]["size"],
-                "feed_bytes": total,
-                "note": "上游尺寸不严格，实际可能和请求不一致，不要做像素级对齐。" if images[0]["size"] and images[0]["size"] != size_text else "",
-            },
-        )
+            jobs.append(result.get("job_id"))
+            if not result.get("ok"):
+                result["images"] = images
+                result["job_ids"] = jobs
+                self._json(200, result)
+                return
+            images.extend(result.get("images") or [])
+        result["images"] = images
+        result["job_ids"] = jobs
+        self._json(200, result)
 
     def _api_save_defaults(self) -> None:
-        # 只接受本机页面发来的请求：自定义头跨域带不了，防恶意网页 CSRF 覆盖配置。
-        if (self.headers.get("X-Image-Edit-Local") or "") != "1":
-            self._json(403, {"ok": False, "error": "拒绝：缺少本机页面标识头"})
-            return
-        body = self._json_body()
-        cfg = {}
-        base = normalize_base(str(body.get("base_url") or ""))
-        key = str(body.get("api_key") or "").strip()
-        model = str(body.get("model") or "").strip()
-        if not key and USER_LOCAL.is_file():
-            try:
-                existing = json.loads(USER_LOCAL.read_text(encoding="utf-8"))
-                if isinstance(existing, dict) and base == normalize_base(str(existing.get("base_url") or "")):
-                    key = str(existing.get("api_key") or "")
-            except (OSError, ValueError):
-                pass
-        if base:
-            cfg["base_url"] = base
-        if key:
-            cfg["api_key"] = key
-        if model:
-            cfg["model"] = model
-        if not cfg:
-            self._json(400, {"ok": False, "error": "没有可保存的字段"})
-            return
-        import tempfile
-        USER_LOCAL.parent.mkdir(parents=True, exist_ok=True)
-        fd, tmp = tempfile.mkstemp(prefix=".image-edit.", suffix=".tmp", dir=USER_LOCAL.parent)
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as fp:
-                json.dump(cfg, fp, ensure_ascii=False, indent=2)
-                fp.flush()
-                os.fsync(fp.fileno())
-            os.replace(tmp, USER_LOCAL)
-        finally:
-            if os.path.exists(tmp):
-                os.unlink(tmp)
-        log("save-defaults updated %s (api_key length=%d)" % (", ".join(sorted(cfg)), len(key)))
-        self._json(200, {"ok": True, "path": str(USER_LOCAL), "saved": sorted(cfg)})
-
-    def _api_video(self) -> None:
-        body = self._json_body()
-        base, key = resolve_credentials(body)
-        model = str(body.get("model") or "").strip()
-        prompt = str(body.get("prompt") or "").strip()
-        size = str(body.get("size") or "1280x720").strip()
-        seconds = str(body.get("seconds") or "8").strip()
-
-        if not base or not key:
-            self._json(400, {"ok": False, "error": "需要 Base URL 和 API Key"})
-            return
-        if not model:
-            self._json(400, {"ok": False, "error": "缺少视频模型名"})
-            return
-        if not prompt:
-            self._json(400, {"ok": False, "error": "缺少提示词"})
-            return
-
-        job_id = secrets.token_hex(6)
-        with VIDEO_JOBS_LOCK:
-            VIDEO_JOBS[job_id] = {
-                "status": "queued",
-                "phase": "queued",
-                "progress": None,
-                "error": None,
-                "file_url": None,
-                "upstream_id": None,
-            }
-        log("video[%s] submit model=%s size=%s seconds=%s base=%s" % (job_id, model, size, seconds, base))
-        threading.Thread(
-            target=_video_worker,
-            args=(job_id, base, key, model, prompt, size, seconds),
-            daemon=True,
-        ).start()
-        self._json(200, {"ok": True, "job_id": job_id})
+        self._json(409, {
+            "ok": False,
+            "error": "本项目凭据只从环境变量读取；现有本机配置保留只读，不再由页面写入。",
+        })
 
 
 def main() -> None:

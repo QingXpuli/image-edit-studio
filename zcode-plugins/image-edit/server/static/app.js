@@ -50,13 +50,12 @@
   const EXT = { png: "png", jpeg: "jpg", webp: "webp" };
 
   function computeSize(tier, ratio) {
-    const base = TIER_SHORT[tier] || 1024;
-    const [rw, rh] = RATIOS[ratio] || [1, 1];
-    let w, h;
-    if (rw >= rh) { h = base; w = base * rw / rh; }
-    else { w = base; h = base * rh / rw; }
-    const snap = (v) => Math.max(256, Math.round(v / 64) * 64);
-    return snap(w) + "x" + snap(h);
+    const sizes = {
+      "1k": { "1:1": "1024x1024", "3:2": "1536x1024", "2:3": "1024x1536" },
+      "2k": { "1:1": "2048x2048", "16:9": "2048x1152", "9:16": "1152x2048" },
+      "4k": { "1:1": "2880x2880", "16:9": "3840x2160", "9:16": "2160x3840" },
+    };
+    return (sizes[tier] || sizes["1k"])[ratio] || "";
   }
 
   function saveSettings() {
@@ -652,25 +651,8 @@
     }
   };
 
-  $("btnSaveDefaults").onclick = async () => {
-    saveSettings();
-    setStatus($("connStatus"), "保存到本机配置…");
-    try {
-      const r = await fetch("/api/save-defaults", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-Image-Edit-Local": "1" },
-        body: JSON.stringify({
-          base_url: $("baseUrl").value.trim(),
-          api_key: $("apiKey").value.trim(),
-          model: $("model").value.trim(),
-        }),
-      });
-      const j = await r.json();
-      if (j.ok) setStatus($("connStatus"), `已写入本机配置 ${j.path}（${j.saved.join(", ")}）。代跑生成将使用这套接口。`, "ok");
-      else setStatus($("connStatus"), "保存失败：" + (j.error || r.status), "err");
-    } catch (e) {
-      setStatus($("connStatus"), String(e), "err");
-    }
+  $("btnSaveDefaults").onclick = () => {
+    setStatus($("connStatus"), "服务端默认凭据使用环境变量配置；页面不写入凭据文件。现有配置保留只读。");
   };
 
   function canvasToBlob(canvas, type) {
@@ -711,6 +693,7 @@
     }
   }
 
+  let pendingSample = "";
   $("btnRun").onclick = async () => {
     saveSettings();
     const tab = document.body.dataset.tab;
@@ -730,6 +713,17 @@
         return;
       }
     }
+    const size = computeSize($("tier").value, $("ratio").value);
+    if (!size) {
+      setStatus($("runStatus"), "此清晰度与宽高比组合未获执行器支持，请选择方图，或 1K 的 3:2/2:3、2K/4K 的 16:9/9:16。", "err");
+      return;
+    }
+    const tierQuality = { "1k": "low", "2k": "medium", "4k": "high" }[$("tier").value];
+    if ($("quality").value !== "auto" && $("quality").value !== tierQuality && $("engine").value === "gpt") {
+      setStatus($("runStatus"), `此清晰度需要 ${tierQuality} 质量，请调整质量或清晰度。`, "err");
+      return;
+    }
+    if (!pendingSample) pendingSample = crypto.randomUUID();
     $("btnRun").disabled = true;
     setStatus($("runStatus"), "提交中…上游可能要等一会儿。超时或 5xx 后先核对任务/账单，避免重复扣费。");
     try {
@@ -738,10 +732,11 @@
       fd.set("api_key", $("apiKey").value.trim());
       fd.set("model", $("model").value.trim());
       fd.set("prompt", $("prompt").value.trim());
-      fd.set("size", computeSize($("tier").value, $("ratio").value));
+      fd.set("size", size);
+      fd.set("request_id", pendingSample);
       fd.set("count", $("count").value);
       fd.set("output_format", $("outputFormat").value);
-      fd.set("quality", $("quality").value);
+      fd.set("quality", $("quality").value === "auto" ? tierQuality : $("quality").value);
       fd.set("pad_mode", $("padMode").value);
       fd.set("mask_mode", $("maskMode").value);
       fd.set("scope", isT2I ? "full" : $("scope").value);
@@ -779,7 +774,8 @@
           (j.images && j.images.length) > 1 ? `${j.images.length} 张` : "",
           j.note || "",
         ].filter(Boolean).join(" · "));
-      setStatus($("runStatus"), "完成", "ok");
+      setStatus($("runStatus"), `文件已保存，语义待复核${j.from_cache ? "（缓存复用，未再次提交）" : ""}。任务 ${j.job_id || ""}`, "ok");
+      pendingSample = "";
     } catch (e) {
       setStatus($("runStatus"), String(e), "err");
     } finally {
