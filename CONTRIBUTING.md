@@ -1,28 +1,31 @@
 # 贡献指南
 
-## 开始之前
+## 当前入口
 
-- 提交 PR 前先跑本地门禁（均不联网、不消耗额度）：
+先读 [`docs/current-policy.md`](docs/current-policy.md) 和 `AGENTS.md`。迁移文档、旧 acceptance 数字和历史 relay 结论只用于追溯，不自动成为新 gate；本次默认不真实生成、不调用 API、不安装插件、不更新 runtime。
+
+## 离网检查
+
+主代理收尾时按实际工作区运行可用的静态检查，例如：
 
 ```powershell
-python zcode-image-edit/tests/test_reliability.py      # 期望: 0 failures
-python style-distill/round_lib/lint_prompt.py --all-rounds   # 期望: 0 条未处置 FAIL
-python style-distill/assert_gallery_categories.py      # 期望: 64/64
+python -m py_compile style-distill/_skill/style-distill/scripts/sync_skill.py
+python style-distill/_skill/style-distill/scripts/sync_skill.py --check
 ```
 
-- 改动任何 `.py`：执行前 `python -m py_compile <文件>`，写回后再全量编译复核一次。
+`sync_skill.py` 的默认模式和 `--check` 只读，输出完整 source/runtime manifest、差异和 installed-only 项；只有明确审批后才使用 `--apply`。它不会删除 runtime-only 文件，覆盖前会先保留差异副本。
+
+旧的可靠性、画廊分类或提示词 acceptance 数字不作为本次新门禁，除非主代理确认测试存在且与当前实现匹配。不得因为文档中的旧数字宣称当前 relay 或当前 CLI 已通过真实生成验证。
 
 ## 约定
 
-1. **结论标注依据**：【实测】（真的跑出来）/【文件核实】（读代码得出）/【判断】（推断）/【未验证】。
-2. **能出数就不靠肉眼**：面积用 %、体积用 MiB、结果用完整解码校验；新增验收逻辑必须带可量化指标。
-3. **凭据只走环境变量**（`RELAY_API_KEY` / `RELAY_BASE_URL` / `RELAY_MODEL`），任何 PR 引入硬编码凭据会被拒绝。
-4. **一轮一个变量**：调提示词/参数时一次只改一处，否则失败无法归因。
-5. **失败态要沉淀**：发现新的生成失败形态，请往 `style-distill/_skill/style-distill/references/negative-library.md` 追加可观察的形态描述（禁止“不要崩”这类空话）。
-6. 提交信息用一行中文说清“做了什么 + 为什么”，参考现有 git log 风格。
+1. 结论标注依据：`【实测】`、`【文件核实】`、`【判断】`、`【未验证】`。
+2. 凭据只走环境变量；不写真实 key、个人路径或个人数据。
+3. 先判断是否可用确定性本地操作；`prompt_only`、inspect、gallery、dry-run 不 POST。
+4. 任务写清 `intent`、`input_roles`、`change_scope`、`deliverable`、`side_effect_policy`、`ui_policy`；身份、内容、配色 scope 不得擅自扩大。
+5. 失败经验先作为候选，人工审核后才写入 references；不自动循环修改 skill。
+6. 修改 Python 时，写回前后都用 `py_compile`/等价 compile 校验；本次文档精简不要求修改核心执行代码。
 
-## 不接受的内容
+## 待实现接口
 
-- 硬编码的个人路径（`C:\Users\...`）——用 `__file__` 推导、环境变量或占位符；
-- 真实图片/个人数据/凭据样本；
-- 绕过预检、验收或原子保存的“快速路径”。
+计划中的 `zimage-task-v1`、`--task-file` 和 `review --job --verdict pass|fail|uncertain --check x=pass` 是待实现契约，不应在文档或测试中冒充现有能力。统一 CLI generation、插件/marketplace、global workflow、归档/删除均需另行审批。

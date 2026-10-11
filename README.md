@@ -8,16 +8,14 @@ AI 主导的图生图 / 局部改图 / 风格蒸馏工作台：**自然语言下
 
 | 能力 | 入口 | 说明 |
 |---|---|---|
-| 整图风格迁移 / 姿态迁移 | `zimage.py edit --whole` | 目标图提供身份，参考图提供动作/构图/画风 |
-| 局部改图（涂哪改哪） | `zimage.py edit --rect/--flood/--mask-file` | 视觉红遮罩 + `--mask-primary`，实测保护区保持率 99.8% |
-| 反向保护（涂哪保哪） | `zimage.py edit --protect` | 保护区为原像素硬贴，适合保脸换装 |
+| 整图风格迁移 / 姿态迁移 | `zimage.py edit --whole` | 先由 `style-distill` 明确身份、参考和 scope，再交执行层 |
+| 局部改图 | `zimage.py edit --rect/--flood/--mask-file` | 先 dry-run/redmark；`--mask-primary` 不是逐像素保护 |
+| 反向保护 | `zimage.py edit --protect` | 模型约束，需保护区 metrics + 语义 review；不用于整体调色 |
 | 确定性本地处理 | `zimage.py local` | 线稿调淡/放大/裁切/拼版/调子报告，不调接口 |
-| 计划与预算预检 | `zimage.py plan --plan-out` | 生成可复用 `plan.json`（哈希、指纹、预算），不发送 |
-| 状态与验收 | Job manifest | 请求指纹缓存、原子保存、完整解码、保护区指标、`NEEDS_REVIEW` 语义待审 |
-| 手涂遮罩（可选） | `zimage.py serve` | 本地网页涂遮罩 → 导出 PNG → 回 CLI |
-| 无限画布（可选） | `zimage.py board` | 即梦式：放图、加字、写提示词、生成贴回；仍走 `run_round` |
-| 成果画廊（可选） | `zimage.py gallery` | 八分类页签 + 灯箱 |
-| 风格蒸馏方法论 | `style-distill/` | 七条铁律、开工四问、失败态词库、L0/L1/L2 经验分级 |
+| 计划与预算预检 | `zimage.py plan --plan-out` | 保存哈希、指纹、预算，不发送 |
+| 状态与验收 | Job manifest / AI review | 技术检查与语义检查分开；不能只看 HTTP 200 |
+| 手涂遮罩、画布、画廊 | `serve` / `board` / `gallery` | 仅辅助入口，生成仍回 CLI |
+| 风格语义分析 | `style-distill/` | 按需做观察、姿态、多视图与提示词编译，不强制全套工具 |
 
 ## 架构
 
@@ -79,12 +77,7 @@ python zcode-image-edit/bin/zimage.py edit --image 原图.png --rect 300,200,700
 
 ## 已验证 / 未验证（如实清单）
 
-已验证（本仓库开发过程中的实测记录，证据见 docs/）：
-- 局部改图保护区保持率 99.8%（修复遮罩提示词缺陷前仅 29.1%）；
-- JPEG 投喂同尺寸体积约为 PNG 的 1/5，可避开内容模糊压缩档；
-- 指纹缓存命中不调用上游、无需凭据；损坏缓存自动拒绝；
-- b64 路线返回尺寸可能不等于请求尺寸（工具按实际尺寸验收）；
-- 三项本地门禁：可靠性测试 0 failures / 提示词校验 0 未处置 FAIL / 画廊分类 64/64。
+历史实测与当前验证必须分开：旧 relay 的局部保护率、JPEG/PNG 体积比、b64 尺寸偏差和门禁数字只作为历史证据，不能当作当前 relay 保证。当前离网验证由主代理收尾；本次没有真实生成或 API 请求。
 
 未验证 / 已知限制：
 - 【未验证】上游对其他模型/端点的行为差异；
@@ -95,13 +88,11 @@ python zcode-image-edit/bin/zimage.py edit --image 原图.png --rect 300,200,700
 
 | 文档 | 内容 |
 |---|---|
-| [docs/迁移说明A_会话与技能.md](docs/迁移说明A_会话与技能.md) | 会话总结、`style-distill` 技能规范（铁律/四问/体积实测） |
-| [docs/迁移说明B_实现原理_改图与画廊.md](docs/迁移说明B_实现原理_改图与画廊.md) | 改图服务、遮蔽原理、画廊分类、模型接入 |
-| [docs/环境_Windows与WSL2混用.md](docs/环境_Windows与WSL2混用.md) | Windows/WSL2 双环境实测结论 |
-| [docs/开源工具与项目应用.md](docs/开源工具与项目应用.md) | GitHub 开源工具接入与验证：WD14 打标、colorgram 调色板、Lineart 线稿（含证伪记录） |
-| [docs/Grok通道建立.md](docs/Grok通道建立.md) | Grok 通道建立：双引擎架构、实测约束、`input_fidelity=low` 画风迁移、三组对照实验 |
-| [docs/响应中断与安全恢复.md](docs/响应中断与安全恢复.md) | 单次 POST 语义、结构化传输报告、安全恢复入口、离网测试 |
-| [zcode-image-edit/README.md](zcode-image-edit/README.md) | CLI 用法、AI 主流程、安装 |
+| [docs/current-policy.md](docs/current-policy.md) | 当前路由、生成闸门、task/review 待实现契约与审批边界 |
+| [docs/new approval-list.md](docs/new%20approval-list.md) | 未授权的安装、归档、删除、真实生成与 workflow 变更 |
+| [docs/迁移说明A_会话与技能.md](docs/迁移说明A_会话与技能.md) | 历史会话与技能记录（顶加 current-policy warning） |
+| [docs/迁移说明B_实现原理_改图与画廊.md](docs/迁移说明B_实现原理_改图与画廊.md) | 历史实现、遮罩与画廊记录（顶加 current-policy warning） |
+| [zcode-image-edit/README.md](zcode-image-edit/README.md) | CLI 用法、AI 主流程、安装与离网边界 |
 
 ## 兼容性说明
 

@@ -19,13 +19,18 @@
 ## 默认不变量
 
 1. 先判断是否能用确定性本地操作解决；能解决就不生成。
-2. 生成默认先做本地 plan/dry-run；真实提交只能由主 AI 流程统一发起。
+2. 生成先查 fingerprint/cache，再做本地 plan/dry-run；真实提交只能由主流程唯一 owner 发起。
 3. 子代理只能做输入角色分析、提示词审查或结果验收，不得提交、重试、创建第二个 fingerprint、修改技能或经验规则。
-4. 相同请求必须先查 fingerprint cache；真实提交必须有唯一 owner，不能并行重复扣费。
+4. `prompt_only`、inspect、gallery、dry-run 不 POST；受理状态未知时停止，不自动重试。
 5. 结果不能仅凭 HTTP 200、文件存在或可解码判定成功；必须按任务要求做技术和语义验收。
-6. 网页有三处：涂遮罩（`/`）、画廊（`/gallery`）、无限画布（`/board`，即梦式）。画布可放图、加字、写提示词并触发生成，但仍走 `zimage.py edit` / `run_round.py`：一次 POST、指纹缓存、环境变量凭据、完整解码。聊天里的 AI 仍负责分类与提示词编译；画布不是第二个发送器。手涂复杂遮罩完成后仍可回到 CLI 的 mask-file 流程。
-7. DSH 仅作历史/兼容参考，不作为 ZCode 图像流程依赖。
-8. 结论标注【实测】、【文件核实】、【判断】或【未验证】；真实失败不得伪装成成功。
+6. 身份源明确；不默认 `input_fidelity=low` 保身份。内容、配色和参考迁移按用户 scope；WD14、Lineart、调色板、JoyCaption、三张卡、姿态/多视图检查按需启用。
+7. 网页有三处：涂遮罩（`/`）、画廊（`/gallery`）、无限画布（`/board`）。它们仍回 CLI generation；网页不是第二个发送器。DSH 仅作历史/兼容参考。
+8. 用户认可版本是基准；单变量只用于诊断，连续两轮失败就停。经验先做候选，人工审核后才写 references，不自动循环写 skill。
+9. 结论标注【实测】、【文件核实】、【判断】或【未验证】；真实失败不得伪装成成功。尺寸阈值、retry 502、b64 下述、物理硬贴和当前 Grok 恢复/fallback 都不得泛化。
+
+## 任务与 review 契约
+
+未来 CLI 的 `--task-file` 计划使用 `zimage-task-v1`：必填 `intent`、`input_roles`、`change_scope`、`deliverable.path`、`deliverable.size`、`side_effect_policy.generation_authorized`、`ui_policy`、`required_checks`。计划中的 `review --job` 使用 `--verdict pass|fail|uncertain` 和 `--check x=pass` 等逐项结果；当前实现以实际 CLI 为准，不能把此契约当成已完成能力。详见 `docs/current-policy.md`。
 
 ## 询问边界
 
